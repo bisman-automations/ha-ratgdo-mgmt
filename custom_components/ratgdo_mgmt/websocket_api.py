@@ -11,7 +11,14 @@ from homeassistant.components.websocket_api import ActiveConnection
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN, SIGNAL_DEVICES_UPDATED, SIGNED_PATH_SECONDS, WS_SIGN_PROXY
+from .const import (
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    DOMAIN,
+    SIGNAL_DEVICES_UPDATED,
+    SIGNED_PATH_SECONDS,
+    WS_SIGN_PROXY,
+)
 from .coordinator import RatgdoCoordinator
 from .proxy import signed_proxy_url
 from .records import record_admin_url
@@ -24,6 +31,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
         return
     websocket_api.async_register_command(hass, ws_subscribe)
     websocket_api.async_register_command(hass, ws_sign_proxy)
+    websocket_api.async_register_command(hass, ws_set_credentials)
     hass.data[DOMAIN]["ws"] = True
 
 
@@ -107,3 +115,46 @@ async def ws_sign_proxy(
             "direct_url": record_admin_url(record),
         },
     )
+
+
+@websocket_api.websocket_command(
+    {
+        probatio.Required("type"): "ratgdo_mgmt/set_credentials",
+        probatio.Required("device_id"): str,
+        probatio.Optional(CONF_USERNAME): str,
+        probatio.Required(CONF_PASSWORD): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_credentials(
+    hass: HomeAssistant,
+    connection: ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Save the web username and password for one controller and probe again."""
+    coordinator = _coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "ratgdo Mgmt is not running")
+        return
+    username = msg.get(CONF_USERNAME)
+    error = await coordinator.async_set_web_credentials(
+        str(msg["device_id"]),
+        username.strip() if isinstance(username, str) else None,
+        str(msg[CONF_PASSWORD]),
+    )
+    if error == "invalid_auth":
+        connection.send_error(
+            msg["id"],
+            "invalid_auth",
+            "That username and password were rejected.",
+        )
+        return
+    if error:
+        connection.send_error(
+            msg["id"],
+            error,
+            "Home Assistant could not reach the controller.",
+        )
+        return
+    connection.send_result(msg["id"], {"ok": True})

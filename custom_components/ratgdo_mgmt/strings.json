@@ -210,7 +210,7 @@
         "step": {
           "init": {
             "title": "Web password for {name}",
-            "description": "The saved password did not match {name}. HomeKit firmware checks MD5 of username, the realm \"RATGDO Login Required\", and the password.",
+            "description": "The saved password did not match {name}. HomeKit firmware checks MD5 of username, the realm \"RATGDO Login Required\", and the password. ESPHome web_server auth is HTTP Basic (the 2026.10 default) or Digest.",
             "data": {
               "username": "Web username",
               "password": "Web password"

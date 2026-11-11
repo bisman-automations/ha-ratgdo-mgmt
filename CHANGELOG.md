@@ -32,4 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A repair when a saved web password is rejected, and a repair when a
   pinned certificate changes.
 
+### Fixed
+
+- An ESPHome ratgdo whose `web_server` has `auth:` (HTTP Basic by default
+  in ESPHome 2026.10, or Digest) was shown as having no web page. `GET /`
+  returning 401 with `WWW-Authenticate` means the page is there. The
+  sidebar asks for that username and password, the proxy answers Basic
+  and Digest, and `local: true` plus web server versions 1, 2, and 3 are
+  shown, including `/events` and the name-based action URLs. Reboot
+  learns the Restart button from the `/events` list instead of assuming
+  `/button/restart/press`.
+
 [0.1.0]: https://github.com/bisman-automations/ha-ratgdo-mgmt/releases/tag/v0.1.0

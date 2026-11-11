@@ -79,8 +79,9 @@ ESPHOME_API_PORT: Final = 6053
 STATUS_PATH: Final = "/status.json"
 AUTH_PATH: Final = "/auth"
 REBOOT_PATH: Final = "/reboot"
-# esphome web_server.cpp handle_button_request, action "press".
-# base.yaml names the stock button "Restart", whose object id is "restart".
+# Pre-2026 web_server used the object id. 2026.x matches the entity name
+# from /events (stock base.yaml names the button "Restart"), so the path
+# is learned at runtime and this constant is only the old shape.
 ESPHOME_RESTART_PATH: Final = "/button/restart/press"
 # esphome web_server.cpp serves the local UI's script at this path.
 ESPHOME_JS_PATH: Final = "/0.js"
@@ -140,6 +141,7 @@ ATTR_MODEL: Final = "model"
 ATTR_BOARD: Final = "board"
 ATTR_WEB: Final = "web"
 ATTR_PASSWORD_REQUIRED: Final = "password_required"
+ATTR_RESTART_PATH: Final = "restart_path"
 ATTR_API_PORT: Final = "api_port"
 
 SERVICE_REFRESH: Final = "refresh"

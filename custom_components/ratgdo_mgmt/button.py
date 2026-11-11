@@ -1,10 +1,11 @@
 """Reboot button.
 
 HomeKit ``POST /reboot`` is unauthenticated (``handle_reboot``). ESPHome's
-stock Restart button is ``POST /button/restart/press`` and only exists
-when ``web_server`` is compiled in. A headless ESPHome node keeps the
-button unavailable; the ESPHome integration's own Restart button is the
-one that talks to the native API.
+stock Restart button is discovered from the ``/events`` entity list
+(``POST /button/<name>/press``) and only exists when ``web_server`` is
+compiled in. A headless ESPHome node keeps the button unavailable; the
+ESPHome integration's own Restart button is the one that talks to the
+native API.
 """
 
 from __future__ import annotations

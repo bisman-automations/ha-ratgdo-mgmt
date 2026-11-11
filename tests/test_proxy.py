@@ -119,6 +119,90 @@ async def test_proxy_strips_bearer_rewrites_gzip_and_sends_api_key(
     await runner.cleanup()
 
 
+async def test_proxy_answers_esphome_basic_and_forwards_actions(
+    hass: Any,
+    hass_client: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Basic auth, a name-based POST, the old press path, and /events."""
+    seen: list[tuple[str, str, str]] = []
+
+    async def handler(request: web.Request) -> web.StreamResponse:
+        auth = request.headers.get("Authorization", "")
+        seen.append((request.method, request.path, auth))
+        if not auth.startswith("Basic "):
+            return web.Response(
+                status=401,
+                headers={"WWW-Authenticate": 'Basic realm="Login Required"'},
+                text="Unauthorized",
+            )
+        if request.path == "/events":
+            body = (
+                "event: state_detail_all\n"
+                'data: {"id":"button/Restart","name":"Restart","domain":"button"}\n\n'
+            )
+            return web.Response(text=body, content_type="text/event-stream")
+        if request.method == "POST" and request.path in {
+            "/button/Restart/press",
+            "/button/restart/press",
+        }:
+            return web.Response(status=200, text="ok")
+        if request.path == "/":
+            html = (
+                "<html><head></head><body><esp-app></esp-app>"
+                "<script src='https://oi.esphome.io/v3/www.js'></script>"
+                "</body></html>"
+            )
+            return web.Response(text=html, content_type="text/html")
+        return web.Response(status=404, text="missing")
+
+    runner, port = await _serve(handler)
+    record = _record("127.0.0.1", port)
+    record["firmware"] = "esphome"
+    record["git_repo"] = None
+    record["password_required"] = True
+
+    async def _probe(*_args: Any, **_kwargs: Any) -> Any:
+        from tests.common import probe_ok
+
+        return probe_ok(firmware="esphome", web=True, password_required=True)
+
+    monkeypatch.setattr("custom_components.ratgdo_mgmt.coordinator.async_probe", _probe)
+    monkeypatch.setattr(
+        "custom_components.ratgdo_mgmt.coordinator.async_discover_restart_path",
+        _no_restart,
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="ratgdo Mgmt",
+        data={},
+        options={"devices": {"manual:1": record}},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    prefix = proxy_prefix(entry.entry_id, "manual:1")
+    admin = await hass_client()
+    page = await admin.get(f"{prefix}/")
+    text = await page.text()
+    assert page.status == 200, text
+    assert "esp-app" in text
+    assert any(item[2].startswith("Basic ") for item in seen)
+    pressed = await admin.post(f"{prefix}/button/Restart/press")
+    assert pressed.status == 200
+    legacy = await admin.post(f"{prefix}/button/restart/press")
+    assert legacy.status == 200
+    events = await admin.get(f"{prefix}/events")
+    assert events.status == 200
+    assert "button/Restart" in await events.text()
+    await runner.cleanup()
+
+
+async def _no_restart(*_args: Any, **_kwargs: Any) -> None:
+    """Skip the live /events read; this test drives the proxy itself."""
+    return None
+
+
 def test_rewrite_and_signed_url_helpers(hass: Any) -> None:
     """Root-relative URLs gain the proxy prefix."""
     prefix = "/api/ratgdo_mgmt/proxy/entry/manual:1"

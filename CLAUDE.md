@@ -116,11 +116,14 @@ belong to the ESPHome integration and to HomeKit Controller.
 - The ESP8266 HomeKit model string is always `ratgdo_v2.5`, including
   boards that are not a v2.5. The v2 versus v2.5 split is reliable from
   the ESPHome project name, not from that model string.
-- `POST /button/restart/press` assumes the stock object id `restart`. A
-  renamed Restart button will not be found.
-- Real hardware has not been on the bench for this release. mDNS TXT
-  key casing, the ESP8266 `_hap._tcp` model, and a changed ESPHome web
-  port are the pieces most likely to need a capture from a live device.
+- ESPHome reboot uses the Restart entity from `/events`
+  (`POST /button/<name>/press`). A button that is not named Restart is
+  not used.
+- ESPHome 2026.10 `web_server` with `auth:` and `local: true` was
+  confirmed on a ratgdo v2.5i (`ratgdo.v25iboard_secplusv1`): `GET /`
+  is 401 Basic before any HTML, and `/0.js` is not compiled in. mDNS
+  TXT key casing, the ESP8266 `_hap._tcp` model, and a non-default web
+  port are still the pieces most likely to need another live capture.
 
 <!-- BEGIN bisman-automations shared rules -->
 <!-- This block is the same in every bisman-automations repo. Edit it in

@@ -14,7 +14,7 @@ import shutil
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from aiohttp import ClientSession, web
+from aiohttp import ClientError, ClientSession, web
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -213,6 +213,32 @@ el.hass = {{
         await esp_runner.cleanup()
 
 
+async def _page_value(debug_port: int, expression: str) -> Any:
+    """Return the value of one expression, or None when the page is not ready."""
+    try:
+        result = await _evaluate(
+            debug_port,
+            "Runtime.evaluate",
+            {"expression": expression, "returnByValue": True},
+        )
+    except ClientError, KeyError, RuntimeError, StopIteration, TimeoutError, OSError:
+        return None
+    if not result or result.get("exceptionDetails"):
+        return None
+    return (result.get("result") or {}).get("value")
+
+
+async def _poll_value(debug_port: int, expression: str, ready: Any) -> Any:
+    """Poll a page expression until ``ready`` accepts it, or the timeout hits."""
+    value: Any = None
+    for _ in range(40):
+        value = await _page_value(debug_port, expression)
+        if ready(value):
+            return value
+        await asyncio.sleep(0.25)
+    return value
+
+
 async def _shot(url: str, label: str, needle: str, select: str | None) -> None:
     """Open the panel, optionally switch tabs, and check the iframe text."""
     viewports = [("desktop", 1280, 800), ("mobile", 390, 844)]
@@ -250,22 +276,27 @@ async def _shot(url: str, label: str, needle: str, select: str | None) -> None:
                     },
                 )
                 if select:
-                    await _evaluate(
+                    clicked = await _poll_value(
                         debug_port,
-                        "Runtime.evaluate",
-                        {
-                            "expression": f"""
-                              (() => {{
-                                const el = document.querySelector("ratgdo-mgmt-panel");
-                                const button = [...el.shadowRoot.querySelectorAll("button")]
-                                  .find((item) => item.textContent.includes({json.dumps(select)}));
-                                button.click();
-                                return true;
-                              }})()
-                            """,
-                            "returnByValue": True,
-                        },
+                        f"""
+                          (() => {{
+                            const el = document.querySelector("ratgdo-mgmt-panel");
+                            const root = el && el.shadowRoot;
+                            const buttons = root
+                              ? [...root.querySelectorAll("button[role=tab]")]
+                              : [];
+                            const labels = buttons.map((item) =>
+                              (item.textContent || "").trim());
+                            const button = buttons.find((item) =>
+                              (item.textContent || "").includes({json.dumps(select)}));
+                            if (!button) return {{ok: false, labels}};
+                            button.click();
+                            return {{ok: true, labels}};
+                          }})()
+                        """,
+                        lambda value: bool(value and value.get("ok")),
                     )
+                    assert clicked and clicked.get("ok"), clicked
                 expression = """
                   (() => {
                     const el = document.querySelector("ratgdo-mgmt-panel");
@@ -276,23 +307,16 @@ async def _shot(url: str, label: str, needle: str, select: str | None) -> None:
                     return {text, height};
                   })()
                 """
-                seen = ""
-                height = 0
-                for _ in range(40):
-                    result = await _evaluate(
-                        debug_port,
-                        "Runtime.evaluate",
-                        {
-                            "expression": expression,
-                            "returnByValue": True,
-                        },
-                    )
-                    value = (result or {}).get("result", {}).get("value") or {}
-                    seen = value.get("text") or ""
-                    height = value.get("height") or 0
-                    if needle in seen and height >= 240:
-                        break
-                    await asyncio.sleep(0.25)
+                seen_value = await _poll_value(
+                    debug_port,
+                    expression,
+                    lambda value: (
+                        needle in (value or {}).get("text", "")
+                        and (value or {}).get("height", 0) >= 240
+                    ),
+                )
+                seen = (seen_value or {}).get("text") or ""
+                height = (seen_value or {}).get("height") or 0
                 assert needle in seen, seen
                 assert height >= 240, height
                 if _ARTIFACTS:

@@ -9,9 +9,14 @@ Identity, in the order the probe tries them:
   Those two keys are always written. The sample ``src/www/status.json``
   in the firmware tree is a fixture and is missing ``gitRepo``; the
   running firmware is not.
-- ``GET /`` and ``GET /0.js`` are the ESPHome ``web_server`` UI
-  (``web_server.cpp``). Stock ``esphome-ratgdo`` YAML enables it. A build
-  that removes ``web_server`` does not answer. An ESPHome node is still
+- ``GET /`` is the ESPHome ``web_server`` UI (``web_server.cpp``
+  ``handle_index_request``). Versions 2 and 3 serve a small HTML page
+  that loads ``https://oi.esphome.io/v2/www.js`` or ``v3/www.js``, unless
+  ``local: true`` embeds that script (gzip, ``USE_WEBSERVER_LOCAL``).
+  ``/0.js`` exists only when ``js_include`` is set. A 401 whose
+  ``WWW-Authenticate`` scheme is Basic or Digest means the page is there
+  and ``auth:`` is on (Basic is the 2026.10 default). A build that
+  removes ``web_server`` does not answer. An ESPHome node is still
   accepted when mDNS already said ``project_name`` starts with
   ``ratgdo.``: the native API on 6053 is not HTTP, and this integration
   does not speak it (that would duplicate the ESPHome integration).
@@ -20,9 +25,11 @@ Identity, in the order the probe tries them:
   sends 403 for a bad key, 401 only when the header is absent).
 
 ``POST /reboot`` is intentionally unauthenticated in ``handle_reboot``.
-ESPHome's stock Restart button is ``POST /button/restart/press``
-(``handle_button_request``, action ``press``, object id from the name
-"Restart" in ``base.yaml``).
+ESPHome's stock Restart button is a ``button`` entity named ``Restart``.
+Since the 2026.x web server, the action URL is the entity name from the
+``/events`` list (``POST /button/Restart/press``), not the older object
+id ``/button/restart/press``. ``handle_button_request`` still accepts
+``press``.
 
 Scheme ``auto`` tries HTTP first, then HTTPS. These devices ship on HTTP.
 HTTPS uses the same three outcomes as a pinned admin page: authority
@@ -36,22 +43,22 @@ from dataclasses import dataclass, replace
 import logging
 import ssl
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import aiohttp
 from aiohttp import ClientError, ClientResponse, ClientTimeout
 from aiohttp.client_exceptions import ServerFingerprintMismatch
+from aiohttp.hdrs import AUTHORIZATION
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .auth import api_key
+from .auth import api_key, authorization_for_challenge, basic_authorization
 from .const import (
     AUTH_PATH,
     DEFAULT_PORT,
     DEFAULT_USERNAME,
     ESPHOME_JS_PATH,
-    ESPHOME_RESTART_PATH,
     FIRMWARE_ESPHOME,
     FIRMWARE_HOMEKIT,
     HOMEKIT_REPOS,
@@ -143,17 +150,44 @@ def homekit_document(payload: Any) -> bool:
     return isinstance(version, str) and bool(version.strip())
 
 
+_ESPHOME_HTML = (
+    "esphome",
+    "/0.js",
+    "www.js",
+    "oi.esphome.io",
+    "<esp-app",
+    "webserver-v1",
+)
+
+
+def www_authenticate_scheme(header: str | None) -> str | None:
+    """Return ``basic`` or ``digest`` when ``header`` is a web-server challenge.
+
+    ESPHome 2026.10 ``AuthMiddlewareHandler`` calls ``requestAuthentication``
+    on failure. The default scheme is Basic; ``type: digest`` opts into
+    Digest. Either challenge means ``web_server`` is compiled in and
+    ``auth:`` is set. A missing header is not that case.
+    """
+    if not header or not header.strip():
+        return None
+    scheme = header.strip().split(None, 1)[0].lower()
+    if scheme in {"basic", "digest"}:
+        return scheme
+    return None
+
+
 def esphome_web_body(path: str, content_type: str, body: str, status: int) -> bool:
     """Return True when an HTTP response is the ESPHome web server.
 
-    ``web_server.cpp`` serves the page at ``/`` and the local script at
-    ``/0.js`` (``USE_WEBSERVER_JS_INCLUDE``). Version 1's HTML contains
-    the word ESPHome. Version 2 and 3 reference ``/0.js``.
+    Version 1 names ESPHome in the page. Versions 2 and 3 reference
+    ``oi.esphome.io`` and ``<esp-app>`` unless ``local: true`` embeds the
+    script. ``/0.js`` is only the optional ``js_include`` file. A 401 is
+    not decided here; ``www_authenticate_scheme`` covers that.
     """
     if status != 200:
         return False
     media = content_type.split(";", 1)[0].strip().lower()
-    if path.rstrip("/") == ESPHOME_JS_PATH.rstrip("/"):
+    if path.rstrip("/") in {ESPHOME_JS_PATH.rstrip("/"), "/www.js"}:
         return "javascript" in media or media in {
             "application/javascript",
             "text/javascript",
@@ -161,7 +195,45 @@ def esphome_web_body(path: str, content_type: str, body: str, status: int) -> bo
     if "html" not in media and media not in {"text/plain", ""}:
         return False
     lowered = body.lower()
-    return "esphome" in lowered or "/0.js" in lowered
+    return any(marker in lowered for marker in _ESPHOME_HTML)
+
+
+def restart_path_from_events(text: str) -> str | None:
+    """Return the Restart button's POST path from an ``/events`` dump.
+
+    ``set_json_id`` writes ``id`` as ``button/<name>`` (or
+    ``button/<device>/<name>`` when the entity has a sub-device). The
+    action segment is ``press``. The name in stock ratgdo YAML is
+    ``Restart``, which is not the old object id ``restart``.
+    """
+    import json
+
+    for line in text.splitlines():
+        if not line.startswith("data:"):
+            continue
+        raw = line[5:].strip()
+        if not raw or raw[0] not in "{[":
+            continue
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        domain = _text(payload.get("domain")) or ""
+        if domain and domain != "button":
+            continue
+        name = _text(payload.get("name")) or ""
+        entity_id = _text(payload.get("id")) or ""
+        if name.lower() != "restart" and not entity_id.lower().endswith("/restart"):
+            continue
+        if name and name.lower() != "restart":
+            continue
+        parts = [quote(part, safe="") for part in entity_id.split("/") if part]
+        if not parts or parts[0] != "button":
+            continue
+        return "/" + "/".join([*parts, "press"])
+    return None
 
 
 def _text(value: Any) -> str | None:
@@ -235,6 +307,8 @@ def _from_esphome(
     fingerprint: str | None,
     hint: Candidate | None,
     web: bool,
+    password_required: bool = False,
+    auth_failed: bool = False,
 ) -> ProbeResult:
     """Build an ESPHome result. ``web`` is false when only mDNS identified it."""
     project = hint.project_name if hint else None
@@ -244,7 +318,7 @@ def _from_esphome(
         scheme=scheme,
         ssl_error=False,
         firmware=FIRMWARE_ESPHOME,
-        name=(hint.name if hint else None) or project,
+        name=(hint.name if hint else None) or project or "ratgdo",
         firmware_version=version,
         esphome_version=hint.esphome_version if hint else None,
         project_name=project,
@@ -258,6 +332,8 @@ def _from_esphome(
         else None,
         mac=hint.mac if hint else None,
         web=web,
+        password_required=password_required,
+        auth_failed=auth_failed,
         cert_sha256=fingerprint,
     )
 
@@ -521,32 +597,213 @@ async def _identify(
             username,
             password,
         )
-    page_url = base if base.endswith("/") else f"{base}/"
-    async with session.get(
-        page_url,
-        timeout=timeout,
-        allow_redirects=False,
-        ssl=ssl_param,
+    page = await _fetch(
+        session,
+        page_url := base if base.endswith("/") else f"{base}/",
+        timeout,
+        ssl_param,
         headers={"Accept-Encoding": "identity"},
-    ) as response:
-        _payload, body, content_type, page_fp = await _read_response(response)
-        page_status = response.status
+    )
+    if page is None:
+        return None
+    page_status, body, content_type, page_fp, challenge = page
     fingerprint = fingerprint or page_fp or fingerprint_fallback
     if esphome_web_body("/", content_type, body, page_status):
         return _from_esphome(scheme, fingerprint=fingerprint, hint=hint, web=True)
+    if (
+        page_status == 401
+        and www_authenticate_scheme(challenge)
+        and (hint is None or hint.firmware != FIRMWARE_HOMEKIT)
+    ):
+        failed = False
+        if password:
+            authed = await _retry_challenge(
+                session,
+                page_url,
+                timeout,
+                ssl_param,
+                challenge,
+                username=username or DEFAULT_USERNAME,
+                password=password,
+                method="GET",
+                uri="/",
+            )
+            failed = not authed
+        return _from_esphome(
+            scheme,
+            fingerprint=fingerprint,
+            hint=hint,
+            web=True,
+            password_required=True,
+            auth_failed=failed,
+        )
     script_url = f"{base.rstrip('/')}{ESPHOME_JS_PATH}"
-    async with session.get(
-        script_url,
-        timeout=timeout,
-        allow_redirects=False,
-        ssl=ssl_param,
-    ) as response:
-        _payload, body, content_type, _fp = await _read_response(response)
-        script_status = response.status
-    if esphome_web_body(ESPHOME_JS_PATH, content_type, body, script_status):
-        return _from_esphome(scheme, fingerprint=fingerprint, hint=hint, web=True)
+    script = await _fetch(session, script_url, timeout, ssl_param)
+    if script is not None:
+        script_status, body, content_type, _fp, _challenge = script
+        if esphome_web_body(ESPHOME_JS_PATH, content_type, body, script_status):
+            return _from_esphome(scheme, fingerprint=fingerprint, hint=hint, web=True)
     _LOGGER.debug("Probe %s is not a ratgdo web UI", base)
     return None
+
+
+async def _fetch(
+    session: aiohttp.ClientSession,
+    url: str,
+    timeout: ClientTimeout,
+    ssl_param: Any,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str, str, str | None, str | None] | None:
+    """GET ``url``. None means the connection failed and the caller should stop."""
+    try:
+        async with session.get(
+            url,
+            timeout=timeout,
+            allow_redirects=False,
+            ssl=ssl_param,
+            headers=headers,
+        ) as response:
+            _payload, text, content_type, fingerprint = await _read_response(response)
+            return (
+                response.status,
+                text,
+                content_type,
+                fingerprint,
+                response.headers.get("WWW-Authenticate"),
+            )
+    except (ClientError, OSError, TimeoutError) as err:
+        _LOGGER.debug("Probe %s failed: %s", url, err)
+        return None
+
+
+async def _retry_challenge(
+    session: aiohttp.ClientSession,
+    url: str,
+    timeout: ClientTimeout,
+    ssl_param: Any,
+    challenge: str | None,
+    *,
+    username: str,
+    password: str,
+    method: str,
+    uri: str,
+) -> bool:
+    """Return True when saved credentials satisfy ``WWW-Authenticate``."""
+    authorization = authorization_for_challenge(
+        challenge,
+        username=username,
+        password=password,
+        method=method,
+        uri=uri,
+    )
+    if authorization is None and www_authenticate_scheme(challenge) == "basic":
+        authorization = basic_authorization(username, password)
+    if not authorization:
+        return False
+    try:
+        async with session.request(
+            method,
+            url,
+            timeout=timeout,
+            allow_redirects=False,
+            ssl=ssl_param,
+            headers={AUTHORIZATION: authorization, "Accept-Encoding": "identity"},
+        ) as response:
+            return response.status == 200
+    except (ClientError, OSError, TimeoutError) as err:
+        _LOGGER.debug("Auth retry %s failed: %s", url, err)
+        return False
+
+
+async def async_discover_restart_path(
+    hass: HomeAssistant,
+    *,
+    scheme: str,
+    host: str,
+    port: int,
+    verify_ssl: bool,
+    pinned_sha256: str | None,
+    username: str | None,
+    password: str | None,
+) -> str | None:
+    """Read ``/events`` until the Restart button's action URL appears.
+
+    The stream is the entity list (``state_detail_all``). It is not kept
+    open. A missing password, or a password the device rejects, returns
+    None instead of guessing ``/button/restart/press``.
+    """
+    verify, ssl_param = _security(scheme, verify_ssl, pinned_sha256)
+    if ssl_param is None and scheme == SCHEME_HTTPS:
+        return None
+    session = async_get_clientsession(hass, verify_ssl=verify)
+    base = origin_url(scheme, host, port)
+    url = f"{base.rstrip('/')}/events"
+    headers: dict[str, str] = {
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+    }
+    if password:
+        headers[AUTHORIZATION] = basic_authorization(
+            username or DEFAULT_USERNAME, password
+        )
+    timeout = ClientTimeout(total=3, sock_connect=PROBE_TIMEOUT, sock_read=2)
+    try:
+        async with session.get(
+            url,
+            timeout=timeout,
+            allow_redirects=False,
+            ssl=ssl_param,
+            headers=headers,
+        ) as response:
+            if response.status == 401 and password:
+                authorization = authorization_for_challenge(
+                    response.headers.get("WWW-Authenticate"),
+                    username=username or DEFAULT_USERNAME,
+                    password=password,
+                    method="GET",
+                    uri="/events",
+                )
+                if not authorization:
+                    return None
+                headers = dict(headers)
+                headers[AUTHORIZATION] = authorization
+            elif response.status == 200:
+                return await _read_event_stream(response)
+            else:
+                return None
+        async with session.get(
+            url,
+            timeout=timeout,
+            allow_redirects=False,
+            ssl=ssl_param,
+            headers=headers,
+        ) as response:
+            if response.status != 200:
+                return None
+            return await _read_event_stream(response)
+    except (ClientError, OSError, TimeoutError) as err:
+        _LOGGER.debug("Restart lookup %s failed: %s", url, err)
+        return None
+
+
+async def _read_event_stream(response: ClientResponse) -> str | None:
+    """Return the Restart path from the first chunk of an event stream.
+
+    The device keeps ``/events`` open. A quiet socket ends the read, and
+    whatever has already arrived is still parsed.
+    """
+    parts: list[str] = []
+    size = 0
+    try:
+        async for chunk in response.content.iter_chunked(4096):
+            parts.append(chunk.decode("utf-8", errors="replace"))
+            size += len(chunk)
+            found = restart_path_from_events("".join(parts))
+            if found is not None or size >= 65536:
+                return found
+    except ClientError, OSError, TimeoutError:
+        return restart_path_from_events("".join(parts))
+    return restart_path_from_events("".join(parts))
 
 
 async def _check_auth(
@@ -677,18 +934,23 @@ async def async_reboot(
     pinned_sha256: str | None,
     username: str | None,
     password: str | None,
+    esphome_path: str | None = None,
 ) -> bool:
     """Reboot the controller. HomeKit's route is open; ESPHome's needs the web UI.
 
     Returns True when the device accepted the request. A connection drop
     after the bytes are sent is treated as success for HomeKit, because
     ``handle_reboot`` stops the server immediately after the response.
+    ESPHome uses the Restart path learned from ``/events``. There is no
+    fallback to ``/button/restart/press``.
     """
     if firmware == FIRMWARE_HOMEKIT:
         path = REBOOT_PATH
         method = "POST"
     elif firmware == FIRMWARE_ESPHOME:
-        path = ESPHOME_RESTART_PATH
+        if not esphome_path or not esphome_path.startswith("/button/"):
+            return False
+        path = esphome_path
         method = "POST"
     else:
         return False
@@ -700,6 +962,11 @@ async def async_reboot(
         return False
     session = async_get_clientsession(hass, verify_ssl=verify)
     headers = _headers_for(username, password)
+    if firmware == FIRMWARE_ESPHOME and password:
+        headers = dict(headers)
+        headers[AUTHORIZATION] = basic_authorization(
+            username or DEFAULT_USERNAME, password
+        )
     timeout = ClientTimeout(total=PROBE_TIMEOUT)
     try:
         async with session.request(
@@ -711,6 +978,7 @@ async def async_reboot(
             headers=headers or None,
         ) as response:
             status = response.status
+            challenge = response.headers.get("WWW-Authenticate")
     except (ClientError, OSError, TimeoutError) as err:
         if firmware == FIRMWARE_HOMEKIT:
             _LOGGER.debug("Reboot %s closed the connection: %s", url, err)
@@ -719,6 +987,18 @@ async def async_reboot(
         return False
     if status in {200, 204}:
         return True
+    if status == 401 and firmware == FIRMWARE_ESPHOME and password:
+        return await _retry_challenge(
+            session,
+            url,
+            timeout,
+            ssl_param,
+            challenge,
+            username=username or DEFAULT_USERNAME,
+            password=password,
+            method="POST",
+            uri=path,
+        )
     _LOGGER.debug("Reboot %s returned HTTP %s", url, status)
     return False
 

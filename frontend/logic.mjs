@@ -11,10 +11,27 @@
  */
 
 /**
- * @param {{ web?: boolean } | null | undefined} device
+ * True when the web UI exists but this integration has no working password.
+ *
+ * ESPHome `web_server` `auth:` answers `GET /` with 401. That is a page,
+ * not a missing `web_server`. The tab asks for the username and password
+ * instead of embedding a challenge the browser would send to Home Assistant.
+ *
+ * @param {{ web?: boolean, password_required?: boolean, credentials_set?: boolean, auth_failed?: boolean } | null | undefined} device
+ * @returns {boolean}
+ */
+export function needsWebLogin(device) {
+  if (!device || device.web === false || !device.password_required) {
+    return false;
+  }
+  return !device.credentials_set || device.auth_failed === true;
+}
+
+/**
+ * @param {{ web?: boolean, password_required?: boolean, credentials_set?: boolean, auth_failed?: boolean } | null | undefined} device
  * @param {string | null | undefined} proxyUrl signed proxy URL
  * @param {"pending" | "loaded" | "failed"} frameState
- * @returns {"iframe" | "error" | "no-web" | "empty"}
+ * @returns {"iframe" | "error" | "no-web" | "credentials" | "empty"}
  */
 export function frameMode(device, proxyUrl, frameState) {
   if (!device) {
@@ -22,6 +39,9 @@ export function frameMode(device, proxyUrl, frameState) {
   }
   if (device.web === false) {
     return "no-web";
+  }
+  if (needsWebLogin(device)) {
+    return "credentials";
   }
   if (!proxyUrl || frameState === "failed") {
     return "error";

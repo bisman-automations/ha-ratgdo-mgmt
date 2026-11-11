@@ -5,6 +5,7 @@ import {
   PROXY_SOURCE,
   frameHeight,
   frameMode,
+  needsWebLogin,
 } from "./logic.mjs";
 
 /**
@@ -28,6 +29,8 @@ class RatgdoMgmtPanel extends LitElement {
     _iframeUrl: { state: true },
     _openUrl: { state: true },
     _framePx: { state: true },
+    _credError: { state: true },
+    _credBusy: { state: true },
   };
 
   constructor() {
@@ -39,6 +42,8 @@ class RatgdoMgmtPanel extends LitElement {
     this._iframeUrl = null;
     this._openUrl = null;
     this._framePx = 240;
+    this._credError = "";
+    this._credBusy = false;
     this._unsub = null;
     this._pending = false;
     this._timer = 0;
@@ -83,10 +88,20 @@ class RatgdoMgmtPanel extends LitElement {
     this._pending = true;
     this._unsub = await this.hass.connection.subscribeMessage(
       (event) => {
+        const before = this._device;
         this._devices = event.devices || [];
+        const after = this._device;
         if (!this._devices.some((device) => device.id === this._selected)) {
           this._selected = this._devices[0] ? this._devices[0].id : null;
           this._frame = "pending";
+        } else if (
+          before &&
+          after &&
+          needsWebLogin(before) &&
+          !needsWebLogin(after)
+        ) {
+          this._frame = "pending";
+          this._attempt += 1;
         }
       },
       { type: "ratgdo_mgmt/subscribe" },
@@ -123,7 +138,7 @@ class RatgdoMgmtPanel extends LitElement {
     const device = this._device;
     const generation = ++this._signGen;
     this._clearTimers();
-    if (!device || !this.hass || device.web === false) {
+    if (!device || !this.hass || device.web === false || needsWebLogin(device)) {
       this._iframeUrl = null;
       this._openUrl = null;
       return;
@@ -169,7 +184,7 @@ class RatgdoMgmtPanel extends LitElement {
 
   async _renew() {
     const device = this._device;
-    if (!device || !this.hass || device.web === false) {
+    if (!device || !this.hass || device.web === false || needsWebLogin(device)) {
       return;
     }
     try {
@@ -227,6 +242,30 @@ class RatgdoMgmtPanel extends LitElement {
 
   async _refresh() {
     await this.hass.callService("ratgdo_mgmt", "refresh");
+  }
+
+  async _saveCredentials(event) {
+    event.preventDefault();
+    const device = this._device;
+    if (!device || !this.hass) {
+      return;
+    }
+    const data = new FormData(event.currentTarget);
+    this._credBusy = true;
+    this._credError = "";
+    try {
+      await this.hass.connection.sendMessagePromise({
+        type: "ratgdo_mgmt/set_credentials",
+        device_id: device.id,
+        username: String(data.get("username") || ""),
+        password: String(data.get("password") || ""),
+      });
+    } catch (err) {
+      this._credError =
+        (err && err.message) || "That username and password were rejected.";
+    } finally {
+      this._credBusy = false;
+    }
   }
 
   render() {
@@ -290,7 +329,45 @@ class RatgdoMgmtPanel extends LitElement {
             >`
           : ""}
       </section>
-      ${mode === "no-web"
+      ${mode === "credentials"
+        ? html`
+            <form class="card" data-frame style="height: ${height}" @submit=${this._saveCredentials}>
+              <h2>This web page needs a password</h2>
+              <p>
+                ${device.name} has an ESPHome web server
+                (<code>web_server:</code> with <code>auth:</code>). Enter the
+                username and password from that block. They stay on this
+                Home Assistant and are sent only to the controller.
+              </p>
+              ${device.auth_failed
+                ? html`<p class="error">
+                    The saved username and password were rejected.
+                  </p>`
+                : ""}
+              <label>
+                Username
+                <input name="username" value="admin" autocomplete="username" />
+              </label>
+              <label>
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                />
+              </label>
+              ${this._credError
+                ? html`<p class="error">${this._credError}</p>`
+                : ""}
+              <div class="actions">
+                <button class="button" type="submit" ?disabled=${this._credBusy}>
+                  Save and open
+                </button>
+              </div>
+            </form>
+          `
+        : mode === "no-web"
         ? html`
             <div class="card" data-frame style="height: ${height}">
               <h2>No web page on this controller</h2>
@@ -463,6 +540,31 @@ class RatgdoMgmtPanel extends LitElement {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+    }
+    form.card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 14px;
+    }
+    input {
+      font: inherit;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--divider-color, #444);
+      background: var(--primary-background-color, #111);
+      color: inherit;
+      min-width: 240px;
+    }
+    .error {
+      margin: 0;
+      color: var(--error-color, #f44336);
     }
     @media (max-width: 600px) {
       header,

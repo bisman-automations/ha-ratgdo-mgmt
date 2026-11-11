@@ -14,7 +14,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .client import ProbeResult, async_probe, async_reboot
+from .client import ProbeResult, async_discover_restart_path, async_probe, async_reboot
 from .const import (
     ATTR_API_PORT,
     ATTR_BOARD,
@@ -29,9 +29,12 @@ from .const import (
     ATTR_PASSWORD_REQUIRED,
     ATTR_PROJECT_NAME,
     ATTR_PROJECT_VERSION,
+    ATTR_RESTART_PATH,
     ATTR_SCHEME_MODE,
     ATTR_WEB,
+    CONF_PASSWORD,
     CONF_SCHEME,
+    CONF_USERNAME,
     CONF_VERIFY_SSL,
     DEFAULT_PORT,
     DOMAIN,
@@ -242,7 +245,28 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
                 username=username,
                 password=password,
             )
+            had_restart = record.get(ATTR_RESTART_PATH)
+            if (
+                probe.web
+                and probe.firmware == FIRMWARE_ESPHOME
+                and not probe.auth_failed
+                and not had_restart
+            ):
+                path = await async_discover_restart_path(
+                    self.hass,
+                    scheme=str(probe.scheme or record.get(CONF_SCHEME) or "http"),
+                    host=str(record["host"]),
+                    port=int(record.get("port") or DEFAULT_PORT),
+                    verify_ssl=bool(record.get(CONF_VERIFY_SSL)),
+                    pinned_sha256=record.get(ATTR_CERT_SHA256),
+                    username=username,
+                    password=password,
+                )
+                if path:
+                    record[ATTR_RESTART_PATH] = path
             self._absorb_probe(record, probe)
+            if record.get(ATTR_RESTART_PATH) != had_restart:
+                self._persist()
             probed[device_id] = probe
         await self._async_refresh_releases()
         current = {
@@ -400,6 +424,29 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
             await self.async_request_refresh()
             _LOGGER.debug("Device registry scan added or moved a ratgdo")
 
+    async def async_set_web_credentials(
+        self, device_id: str, username: str | None, password: str
+    ) -> str | None:
+        """Store a web username and password, then probe.
+
+        Returns an error key, or None when the controller accepted them.
+        The password is the ESPHome ``web_server`` ``auth`` password or the
+        HomeKit web password. It is not logged.
+        """
+        record = self.records.get(device_id)
+        if record is None or record.get(ATTR_IGNORED) or not password:
+            return "invalid_auth"
+        record[CONF_USERNAME] = username.strip() if username else None
+        record[CONF_PASSWORD] = password
+        self._persist()
+        await self.async_request_refresh()
+        state = (self.data or {}).get(device_id)
+        if state is None or not state.online:
+            return "cannot_connect"
+        if state.auth_failed:
+            return "invalid_auth"
+        return None
+
     async def async_reboot(self, device_id: str) -> bool:
         """Reboot one controller. The caller has already checked it exists."""
         record = self.records.get(device_id)
@@ -412,6 +459,21 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
             )
             return False
         username, password = credentials_for(record)
+        esphome_path = record.get(ATTR_RESTART_PATH)
+        if record.get(ATTR_FIRMWARE) == FIRMWARE_ESPHOME and not esphome_path:
+            esphome_path = await async_discover_restart_path(
+                self.hass,
+                scheme=str(record.get(CONF_SCHEME) or "http"),
+                host=str(record["host"]),
+                port=int(record.get("port") or DEFAULT_PORT),
+                verify_ssl=bool(record.get(CONF_VERIFY_SSL)),
+                pinned_sha256=record.get(ATTR_CERT_SHA256),
+                username=username,
+                password=password,
+            )
+            if esphome_path:
+                record[ATTR_RESTART_PATH] = esphome_path
+                self._persist()
         return await async_reboot(
             self.hass,
             scheme=str(record.get(CONF_SCHEME) or "http"),
@@ -422,6 +484,7 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
             pinned_sha256=record.get(ATTR_CERT_SHA256),
             username=username,
             password=password,
+            esphome_path=esphome_path if isinstance(esphome_path, str) else None,
         )
 
     @callback
@@ -560,6 +623,7 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
                         if state
                         else bool(record.get(ATTR_PASSWORD_REQUIRED))
                     ),
+                    "credentials_set": bool(record.get(CONF_PASSWORD)),
                     "auth_failed": bool(state and state.auth_failed),
                     "mac": state.mac if state else record.get(ATTR_MAC),
                 }
