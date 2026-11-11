@@ -1,0 +1,22 @@
+refresh:
+ignore_device:
+  fields:
+    device_id:
+      required: true
+      example: "mac:aa:bb:cc:dd:ee:ff"
+      selector:
+        text:
+remove_device:
+  fields:
+    device_id:
+      required: true
+      example: "mac:aa:bb:cc:dd:ee:ff"
+      selector:
+        text:
+reboot:
+  fields:
+    device_id:
+      required: true
+      example: "mac:aa:bb:cc:dd:ee:ff"
+      selector:
+        text:

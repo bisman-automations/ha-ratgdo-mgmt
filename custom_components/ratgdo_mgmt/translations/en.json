@@ -1,0 +1,313 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a ratgdo",
+        "description": "Type the controller's address. ratgdo Mgmt tries HTTP and then HTTPS on the web port unless you choose one. Leave Verify SSL certificate off for the plain HTTP page these controllers ship with, or to pin a certificate you put in front of one. {fingerprint}",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "scheme": "Protocol",
+          "verify_ssl": "Verify SSL certificate",
+          "username": "Web username",
+          "password": "Web password"
+        },
+        "data_description": {
+          "host": "IP address or host name, with no http:// prefix.",
+          "port": "Web page port. 80 unless you changed the ESPHome web server port.",
+          "scheme": "Detect automatically tries HTTP first, then HTTPS.",
+          "verify_ssl": "Off pins a certificate the first time HTTPS answers and checks that fingerprint after that. On requires a certificate signed by an authority this Home Assistant already trusts.",
+          "username": "Optional. HomeKit firmware's web username, or the ESPHome web server username. Leave blank to use admin when a password is set.",
+          "password": "Optional. HomeKit firmware's web password (the default is admin / password until you change it). ESPHome's stock page has no password."
+        }
+      },
+      "confirm": {
+        "title": "Set up ratgdo Mgmt",
+        "description": "Found {name} at {host} ({firmware}, {model}). ratgdo Mgmt will keep looking for other ratgdo controllers on this network. {fingerprint}"
+      },
+      "pin_certificate": {
+        "title": "Pin this certificate",
+        "description": "{name} at {host} uses HTTPS with a certificate this Home Assistant does not already trust. ratgdo Mgmt will remember the fingerprint below and connect only when the controller presents it again.\n\nSHA-256: {fingerprint}"
+      },
+      "accept_certificate": {
+        "title": "Accept the new certificate",
+        "description": "{name} at {host} presented a different certificate from the one ratgdo Mgmt has pinned. Accept it only if you expected the certificate to change.\n\nStored SHA-256: {old_fingerprint}\n\nNew SHA-256: {fingerprint}"
+      },
+      "reconfigure": {
+        "title": "Choose a controller",
+        "description": "Pick the controller whose address or certificate check you want to change.",
+        "data": {
+          "device_id": "Controller"
+        }
+      },
+      "reconfigure_connection": {
+        "title": "Update {name}",
+        "description": "Protocol, port, certificate checking, and web password for this controller. Leave the password blank to keep the saved one. {fingerprint}",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "scheme": "Protocol",
+          "verify_ssl": "Verify SSL certificate",
+          "username": "Web username",
+          "password": "Web password"
+        },
+        "data_description": {
+          "scheme": "Detect automatically tries HTTP first, then HTTPS.",
+          "verify_ssl": "Off pins the certificate. On requires a certificate signed by an authority this Home Assistant already trusts.",
+          "password": "Leave blank to keep the password already saved."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't reach a ratgdo web page at that address. ESPHome without a web server has to be discovered from its mDNS advertisement.",
+      "invalid_host": "Enter a host name or IP address and a port from 1 to 65535.",
+      "ssl_error": "The controller answered on HTTPS, but that certificate is not signed by a trusted authority. Leave Verify SSL certificate off to pin it instead.",
+      "already_tracked": "That controller is already in ratgdo Mgmt."
+    },
+    "abort": {
+      "already_configured": "ratgdo Mgmt is already set up. Newly found controllers are added to it.",
+      "cannot_connect": "Can't reach a ratgdo at that address.",
+      "no_devices": "No controllers to change yet.",
+      "not_ratgdo": "That advertisement is not a ratgdo.",
+      "single_instance_allowed": "ratgdo Mgmt is already set up. Add another controller from its options."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ratgdo Mgmt",
+        "description": "Add a controller by address, or change one that was already found.",
+        "menu_options": {
+          "add": "Add a controller",
+          "manage": "Manage controllers"
+        }
+      },
+      "add": {
+        "title": "Add a controller",
+        "description": "Type the controller's address. Detection tries HTTP first, then HTTPS. {fingerprint}",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "scheme": "Protocol",
+          "verify_ssl": "Verify SSL certificate",
+          "username": "Web username",
+          "password": "Web password"
+        },
+        "data_description": {
+          "host": "IP address or host name, with no http:// prefix.",
+          "port": "Web page port. 80 unless you changed it.",
+          "scheme": "Detect automatically tries HTTP first, then HTTPS.",
+          "verify_ssl": "Off pins a certificate the first time HTTPS answers. On requires a certificate an authority already signed.",
+          "username": "Optional web username.",
+          "password": "Optional web password. HomeKit firmware's default is admin / password until you change it."
+        }
+      },
+      "pin_certificate": {
+        "title": "Pin this certificate",
+        "description": "{name} at {host} uses HTTPS with a certificate this Home Assistant does not already trust. ratgdo Mgmt will remember the fingerprint below and connect only when the controller presents it again.\n\nSHA-256: {fingerprint}"
+      },
+      "accept_certificate": {
+        "title": "Accept the new certificate",
+        "description": "{name} at {host} presented a different certificate from the one ratgdo Mgmt has pinned. Accept it only if you expected the certificate to change.\n\nStored SHA-256: {old_fingerprint}\n\nNew SHA-256: {fingerprint}"
+      },
+      "manage": {
+        "title": "Manage controllers",
+        "data": {
+          "device_id": "Controller"
+        }
+      },
+      "device": {
+        "title": "{name}",
+        "description": "Edit the address, ignore the controller, or remove it.",
+        "menu_options": {
+          "edit": "Edit connection",
+          "ignore": "Ignore",
+          "include": "Show again",
+          "remove": "Remove"
+        }
+      },
+      "edit": {
+        "title": "Update {name}",
+        "description": "Protocol, port, certificate checking, and web password for {name}. Leave the password blank to keep the saved one. {fingerprint}",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "scheme": "Protocol",
+          "verify_ssl": "Verify SSL certificate",
+          "username": "Web username",
+          "password": "Web password"
+        },
+        "data_description": {
+          "scheme": "Detect automatically tries HTTP first, then HTTPS.",
+          "verify_ssl": "Off pins the certificate. On requires a certificate an authority already signed.",
+          "password": "Leave blank to keep the password already saved."
+        }
+      },
+      "ignore": {
+        "title": "Ignore {name}",
+        "description": "{name} will disappear from the panel and will not be added again when it is discovered. You can show it again from this screen."
+      },
+      "include": {
+        "title": "Show {name} again",
+        "description": "{name} will be probed and shown in the panel."
+      },
+      "remove": {
+        "title": "Remove {name}",
+        "description": "{name} will be removed. If the controller is still on the network, discovery can add it again."
+      }
+    },
+    "error": {
+      "cannot_connect": "Can't reach a ratgdo web page at that address. ESPHome without a web server has to be discovered from its mDNS advertisement.",
+      "invalid_host": "Enter a host name or IP address and a port from 1 to 65535.",
+      "ssl_error": "The controller answered on HTTPS, but that certificate is not signed by a trusted authority. Leave Verify SSL certificate off to pin it instead.",
+      "already_tracked": "That controller is already in ratgdo Mgmt."
+    },
+    "abort": {
+      "no_devices": "No controllers to change yet."
+    }
+  },
+  "selector": {
+    "scheme": {
+      "options": {
+        "auto": "Detect automatically",
+        "http": "HTTP",
+        "https": "HTTPS"
+      }
+    }
+  },
+  "issues": {
+    "offline": {
+      "title": "{name} is offline",
+      "description": "ratgdo Mgmt cannot reach {name} at {host}. Check that the controller is powered and on this network."
+    },
+    "certificate": {
+      "title": "{name} certificate is not trusted",
+      "description": "The certificate for {name} at {host} is not signed by an authority this Home Assistant trusts. Leave Verify SSL certificate off to pin the controller's own certificate, or give it a certificate Home Assistant already trusts."
+    },
+    "certificate_changed": {
+      "title": "{name} certificate changed",
+      "fix_flow": {
+        "abort": {
+          "cannot_connect": "Can't reach the controller to confirm the new certificate. Check that it is on, then try again."
+        },
+        "step": {
+          "init": {
+            "title": "Accept the new certificate for {name}",
+            "description": "{name} at {host} presented a different certificate from the one ratgdo Mgmt has pinned. Accept it only if you expected the certificate to change.\n\nStored SHA-256: {fingerprint}\n\nNew SHA-256: {new_fingerprint}"
+          }
+        }
+      }
+    },
+    "auth_failed": {
+      "title": "{name} rejected the web password",
+      "fix_flow": {
+        "abort": {
+          "invalid_auth": "That username and password were rejected. The HomeKit page's default is admin / password until you change it."
+        },
+        "error": {
+          "invalid_auth": "Enter the web password."
+        },
+        "step": {
+          "init": {
+            "title": "Web password for {name}",
+            "description": "The saved password did not match {name}. HomeKit firmware checks MD5 of username, the realm \"RATGDO Login Required\", and the password.",
+            "data": {
+              "username": "Web username",
+              "password": "Web password"
+            }
+          }
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connectivity": {
+        "name": "Connectivity"
+      },
+      "password_required": {
+        "name": "Password required"
+      }
+    },
+    "button": {
+      "reboot": {
+        "name": "Reboot"
+      }
+    },
+    "sensor": {
+      "firmware_type": {
+        "name": "Firmware",
+        "state": {
+          "esphome": "ESPHome",
+          "homekit": "HomeKit"
+        }
+      },
+      "firmware_version": {
+        "name": "Firmware version"
+      },
+      "board": {
+        "name": "Board",
+        "state": {
+          "ratgdo_v2": "ratgdo v2",
+          "ratgdo25": "ratgdo v2.5",
+          "ratgdo32": "ratgdo32",
+          "ratgdo32_disco": "ratgdo32 disco",
+          "ratgdo": "ratgdo"
+        }
+      },
+      "last_seen": {
+        "name": "Last seen"
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "free_heap": {
+        "name": "Free heap"
+      },
+      "crash_count": {
+        "name": "Crash count"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh",
+      "description": "Probe every ratgdo now."
+    },
+    "ignore_device": {
+      "name": "Ignore controller",
+      "description": "Stop managing a controller. It stays ignored if it is discovered again.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "The id of the controller to ignore."
+        }
+      }
+    },
+    "remove_device": {
+      "name": "Remove controller",
+      "description": "Remove a controller. A later discovery can add it again.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "The id of the controller to remove."
+        }
+      }
+    },
+    "reboot": {
+      "name": "Reboot controller",
+      "description": "Reboot a controller. HomeKit firmware reboots over HTTP with no password. ESPHome reboots only when its web server is enabled.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "The id of the controller to reboot."
+        }
+      }
+    }
+  }
+}

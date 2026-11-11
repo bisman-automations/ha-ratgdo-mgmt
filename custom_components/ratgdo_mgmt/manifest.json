@@ -1,0 +1,34 @@
+{
+  "domain": "ratgdo_mgmt",
+  "name": "ratgdo Mgmt",
+  "after_dependencies": ["esphome", "frontend", "homekit_controller", "http"],
+  "codeowners": ["@donavanbecker"],
+  "config_flow": true,
+  "dhcp": [
+    {"hostname": "garage-door-*"},
+    {"hostname": "ratgdo*"},
+    {"hostname": "ratgdov*"}
+  ],
+  "documentation": "https://github.com/bisman-automations/ha-ratgdo-mgmt",
+  "homekit": {"models": ["ratgdo*"]},
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/bisman-automations/ha-ratgdo-mgmt/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0",
+  "zeroconf": [
+    {"type": "_ratgdo._tcp.local."},
+    {
+      "properties": {"project_name": "ratgdo.*"},
+      "type": "_esphomelib._tcp.local."
+    },
+    {
+      "properties": {"project_name": "ratgdo.*"},
+      "type": "_esphome._tcp.local."
+    },
+    {"name": "ratgdo*", "type": "_http._tcp.local."},
+    {"name": "ratgdov*", "type": "_http._tcp.local."},
+    {"properties": {"md": "ratgdo*"}, "type": "_hap._tcp.local."}
+  ]
+}

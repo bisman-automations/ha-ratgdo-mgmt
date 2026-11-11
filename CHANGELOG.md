@@ -1,0 +1,35 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.0] - 2026-11-11
+
+### Added
+
+- Discover ratgdo controllers running ESPHome firmware or HomeKit firmware
+  (ratgdo v2.5, ratgdo32, and ratgdo32 disco) from mDNS, DHCP, HomeKit, and
+  devices already in Home Assistant, and add one by address.
+- An administrator sidebar, ratgdo Mgmt, with one tab per controller. The
+  tab loads that controller's own web page through Home Assistant. An
+  ESPHome build without a web server explains that and shows the identity
+  that was discovered.
+- Firmware, firmware version, board, connectivity, and last seen for each
+  controller. HomeKit firmware also reports whether a web password is
+  required, uptime, free heap, and the crash count. A reboot button uses
+  the HomeKit reboot route, or the ESPHome web server's Restart button
+  when that page exists.
+- A firmware update entity. HomeKit versions are compared with the newest
+  GitHub release of the matching firmware. The release notes link is on
+  the entity. ESPHome's board profile is not the same number as the
+  esphome-ratgdo build tag, so that release is linked without being
+  treated as a newer board profile.
+- Options to add a controller by address, choose HTTP or HTTPS, pin a
+  certificate, and save the web username and password. Ignore or remove a
+  controller. An ignored controller stays hidden when it is discovered again.
+- A repair when a saved web password is rejected, and a repair when a
+  pinned certificate changes.
+
+[0.1.0]: https://github.com/bisman-automations/ha-ratgdo-mgmt/releases/tag/v0.1.0

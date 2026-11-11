@@ -1,0 +1,19 @@
+# Draft release: on every push to main, create or refresh the DRAFT release for
+# the version in manifest.json, with that version's CHANGELOG.md section as the
+# notes and the integration zip attached. It never publishes: Donavan reviews
+# and publishes the draft, which creates the tag. Shared workflow:
+# https://github.com/bisman-automations/.github (.github/workflows/ha-draft-release.yml).
+name: Draft release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Creating and editing a draft release needs write access to contents.
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    uses: bisman-automations/.github/.github/workflows/ha-draft-release.yml@main

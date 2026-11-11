@@ -1,0 +1,3 @@
+# Every file is reviewed by Donavan. Same file in every bisman-automations repo.
+# (manifest.json "codeowners" lists the same person for Home Assistant.)
+* @donavanbecker

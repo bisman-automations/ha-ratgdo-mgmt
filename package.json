@@ -1,0 +1,14 @@
+{
+  "name": "ha-ratgdo-mgmt-panel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild frontend/panel.js --bundle --format=iife --outfile=custom_components/ratgdo_mgmt/frontend/ratgdo-mgmt-panel.js"
+  },
+  "dependencies": {
+    "lit": "3.3.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

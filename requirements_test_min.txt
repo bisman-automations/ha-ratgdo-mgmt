@@ -1,0 +1,7 @@
+# The oldest Home Assistant this integration supports (hacs.json: 2026.10.0).
+# pytest-homeassistant-custom-component 0.13.375 is Home Assistant 2026.10.4,
+# the newest harness release of that month (and the newest release on PyPI
+# as of 2026-11-11). It needs Python 3.14 (CI python-min). Raise this
+# together with hacs.json; see CLAUDE.md.
+pytest-homeassistant-custom-component==0.13.375
+# Test-only libraries, pinned to what that Home Assistant expected, go below.

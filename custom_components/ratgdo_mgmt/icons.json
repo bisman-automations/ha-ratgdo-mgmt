@@ -1,0 +1,51 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "connectivity": {
+        "default": "mdi:garage"
+      },
+      "password_required": {
+        "default": "mdi:lock"
+      }
+    },
+    "button": {
+      "reboot": {
+        "default": "mdi:restart"
+      }
+    },
+    "sensor": {
+      "firmware_type": {
+        "default": "mdi:chip"
+      },
+      "firmware_version": {
+        "default": "mdi:tag"
+      },
+      "board": {
+        "default": "mdi:developer-board"
+      },
+      "last_seen": {
+        "default": "mdi:clock-check-outline"
+      },
+      "uptime": {
+        "default": "mdi:timer-outline"
+      },
+      "free_heap": {
+        "default": "mdi:memory"
+      },
+      "crash_count": {
+        "default": "mdi:alert-outline"
+      }
+    },
+    "update": {
+      "firmware": {
+        "default": "mdi:package-up"
+      }
+    }
+  },
+  "services": {
+    "refresh": "mdi:refresh",
+    "ignore_device": "mdi:eye-off",
+    "remove_device": "mdi:delete",
+    "reboot": "mdi:restart"
+  }
+}

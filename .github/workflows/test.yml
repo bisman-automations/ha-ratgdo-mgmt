@@ -1,0 +1,31 @@
+# Tests: lint, the sidebar panel scripts, and pytest on the oldest supported
+# and the newest Home Assistant (plus the upcoming one, information only).
+# The jobs live in the shared workflow so every bisman-automations repo tests
+# the same way: https://github.com/bisman-automations/.github
+# (.github/workflows/ha-test.yml documents every input).
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly on Thursday, the day after Home Assistant's betas are published,
+  # so a new release (newest job) or beta (next job) that breaks something
+  # shows up even when nothing here changed.
+  schedule:
+    - cron: "0 6 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: bisman-automations/.github/.github/workflows/ha-test.yml@main
+#   with:
+#     python-min: "3.13"  # hacs.json minimum is 2026.2 or older
+#     mypy: custom_components/<domain>

@@ -1,0 +1,29 @@
+# Validate: hassfest, the HACS checks, and the bisman-automations standards
+# check (layout, CHANGELOG, README, CLAUDE.md). Shared workflow:
+# https://github.com/bisman-automations/.github (.github/workflows/ha-validate.yml
+# documents every input). Defaults suit a public repository. A private
+# repository sets hacs: false: hacs/action refuses private repos before any
+# check runs, and hacs-ignore cannot skip that.
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, to catch new hassfest and HACS rules.
+  schedule:
+    - cron: "0 6 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    uses: bisman-automations/.github/.github/workflows/ha-validate.yml@main
+#   with:
+#     hacs: false  # private repository only

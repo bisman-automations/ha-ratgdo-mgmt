@@ -1,0 +1,9 @@
+# Test requirements for the newest Home Assistant (CI "newest" and lint jobs).
+# pytest-homeassistant-custom-component pins Home Assistant itself and is left
+# unpinned on purpose, so CI always tests the newest release.
+pytest-homeassistant-custom-component
+# Lint, pinned so it only changes when Dependabot proposes an update.
+# 0.17.4 is the current ruff release (2026-11-11).
+ruff==0.17.4
+# Test-only libraries (the integration's runtime requirements are in
+# manifest.json) go below.

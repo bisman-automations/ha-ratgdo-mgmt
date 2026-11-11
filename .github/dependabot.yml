@@ -1,0 +1,34 @@
+# Dependabot: weekly update PRs for the GitHub Actions used here and the
+# pinned test tools in requirements_test.txt (ruff, mypy, test-only libraries).
+#
+# pytest-homeassistant-custom-component and homeassistant are ignored on
+# purpose: requirements_test.txt leaves the harness unpinned (CI always tests
+# the newest Home Assistant), and requirements_test_min.txt pins the harness
+# release for the minimum in hacs.json, which only changes when we raise the
+# minimum. aiohttp and pycares are ignored for the same reason: they only
+# appear in requirements_test_min.txt, pinned to what that old Home Assistant
+# needs. Same file in every bisman-automations repo.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    ignore:
+      - dependency-name: "pytest-homeassistant-custom-component"
+      - dependency-name: "homeassistant"
+      - dependency-name: "aiohttp"
+      - dependency-name: "pycares"
+    groups:
+      test-tools:
+        patterns: ["*"]
