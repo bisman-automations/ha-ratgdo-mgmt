@@ -32,6 +32,7 @@ async def _admin_refresh(hass: Any) -> str:
 
 
 _CHROME = shutil.which("google-chrome") or shutil.which("chromium")
+CHROME_START_SECONDS = 60
 _ARTIFACTS = os.environ.get("RATGDO_ARTIFACTS", "")
 
 
@@ -260,8 +261,11 @@ async def _shot(url: str, label: str, needle: str, select: str | None) -> None:
             assert process.stderr is not None
             debug_port = None
             try:
+                # A busy CI runner can take a while to start Chrome.
                 while debug_port is None:
-                    line = await asyncio.wait_for(process.stderr.readline(), 20)
+                    line = await asyncio.wait_for(
+                        process.stderr.readline(), CHROME_START_SECONDS
+                    )
                     text = line.decode(errors="replace")
                     if "DevTools listening on" in text:
                         debug_port = int(text.split("127.0.0.1:")[1].split("/")[0])

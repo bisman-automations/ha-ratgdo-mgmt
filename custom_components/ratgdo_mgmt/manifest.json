@@ -16,7 +16,7 @@
   "issue_tracker": "https://github.com/bisman-automations/ha-ratgdo-mgmt/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "zeroconf": [
     {"type": "_ratgdo._tcp.local."},
     {
