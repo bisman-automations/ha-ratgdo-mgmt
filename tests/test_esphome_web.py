@@ -92,7 +92,9 @@ async def test_each_open_page_shape(hass: Any, socket_enabled: None) -> None:
         await make(kind)
 
 
-async def test_basic_auth_401_means_the_page_exists(hass: Any, socket_enabled: None) -> None:
+async def test_basic_auth_401_means_the_page_exists(
+    hass: Any, socket_enabled: None
+) -> None:
     """Donavan's YAML: auth without type is Basic. 401 is a web UI.
 
     No password stays password_required and not auth_failed. A wrong

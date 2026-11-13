@@ -21,6 +21,9 @@ from .const import FIRMWARE_ESPHOME, FIRMWARE_HOMEKIT
 from .coordinator import RatgdoCoordinator, RatgdoMgmtConfigEntry
 from .entity import RatgdoEntity
 
+# The device takes one command at a time.
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
