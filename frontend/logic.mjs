@@ -17,11 +17,20 @@
  * not a missing `web_server`. The tab asks for the username and password
  * instead of embedding a challenge the browser would send to Home Assistant.
  *
- * @param {{ web?: boolean, password_required?: boolean, credentials_set?: boolean, auth_failed?: boolean } | null | undefined} device
+ * HomeKit firmware (`passwordRequired`) is different: its page loads without
+ * a password and shows its own login, which sends `X-API-Key` through the
+ * proxy. That page is embedded as is.
+ *
+ * @param {{ firmware?: string, web?: boolean, password_required?: boolean, credentials_set?: boolean, auth_failed?: boolean } | null | undefined} device
  * @returns {boolean}
  */
 export function needsWebLogin(device) {
-  if (!device || device.web === false || !device.password_required) {
+  if (
+    !device ||
+    device.web === false ||
+    !device.password_required ||
+    device.firmware === "homekit"
+  ) {
     return false;
   }
   return !device.credentials_set || device.auth_failed === true;

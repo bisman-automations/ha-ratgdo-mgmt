@@ -551,7 +551,7 @@
 
   // frontend/logic.mjs
   function needsWebLogin(device) {
-    if (!device || device.web === false || !device.password_required) {
+    if (!device || device.web === false || !device.password_required || device.firmware === "homekit") {
       return false;
     }
     return !device.credentials_set || device.auth_failed === true;

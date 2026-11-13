@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-11-13
+
+### Fixed
+
+- **HomeKit firmware opens its own page again.** A ratgdo running the HomeKit firmware with a web password showed a form asking for an ESPHome web server password. Its page now opens in the panel and shows its own login, as it does in a browser. ESPHome controllers with a web server password still get the form.
+
 ## [0.1.2] - 2026-11-13
 
 ### Fixed
@@ -55,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   learns the Restart button from the `/events` list instead of assuming
   `/button/restart/press`.
 
+[0.1.3]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/bisman-automations/ha-ratgdo-mgmt/releases/tag/v0.1.0

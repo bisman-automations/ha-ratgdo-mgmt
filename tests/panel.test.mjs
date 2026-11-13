@@ -35,6 +35,27 @@ test("a controller with no web server does not get an iframe", () => {
   );
 });
 
+test("HomeKit firmware shows its own login page", () => {
+  for (const extra of [{}, { credentials_set: true, auth_failed: true }]) {
+    assert.equal(
+      frameMode(
+        { firmware: "homekit", web: true, password_required: true, ...extra },
+        "https://ha/proxy",
+        "pending",
+      ),
+      "iframe",
+    );
+  }
+  assert.equal(
+    frameMode(
+      { firmware: "esphome", web: true, password_required: true },
+      "https://ha/proxy",
+      "pending",
+    ),
+    "credentials",
+  );
+});
+
 test("frame height is the viewport minus the frame top, in pixels", () => {
   assert.equal(frameHeight(800, 120), 680);
   assert.equal(frameHeight(300, 200), 240);
