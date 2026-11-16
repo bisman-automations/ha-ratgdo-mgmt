@@ -4,6 +4,6 @@
 pytest-homeassistant-custom-component
 # Lint, pinned so it only changes when Dependabot proposes an update.
 # 0.17.4 is the current ruff release (2026-11-11).
-ruff==0.17.4
+ruff==0.17.5
 # Test-only libraries (the integration's runtime requirements are in
 # manifest.json) go below.
