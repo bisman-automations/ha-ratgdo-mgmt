@@ -79,3 +79,14 @@ export const FRAME_LOAD_TIMEOUT_MS = 8000;
 
 /** postMessage source the proxy hook and error page both use. */
 export const PROXY_SOURCE = "ratgdo-mgmt-proxy";
+
+
+/**
+ * Whether a Lit update needs drawing. Home Assistant gives the panel a new
+ * `hass` on every state change in the house; this page shows none of them,
+ * so once it has been drawn, a change of `hass` alone is skipped.
+ */
+export function needsDraw(changed, hasUpdated) {
+  if (!hasUpdated) return true;
+  return !(changed.size === 1 && changed.has("hass"));
+}

@@ -5,6 +5,7 @@ import {
   PROXY_SOURCE,
   frameHeight,
   frameMode,
+  needsDraw,
   needsWebLogin,
 } from "./logic.mjs";
 
@@ -69,6 +70,13 @@ class RatgdoMgmtPanel extends LitElement {
       this._unsub();
       this._unsub = null;
     }
+  }
+
+  shouldUpdate(changed) {
+    if (needsDraw(changed, this.hasUpdated)) return true;
+    // Not drawn again, but live updates still need a connection.
+    this._subscribe();
+    return false;
   }
 
   updated(changed) {

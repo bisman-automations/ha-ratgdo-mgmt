@@ -580,6 +580,10 @@
   }
   var FRAME_LOAD_TIMEOUT_MS = 8e3;
   var PROXY_SOURCE = "ratgdo-mgmt-proxy";
+  function needsDraw(changed, hasUpdated) {
+    if (!hasUpdated) return true;
+    return !(changed.size === 1 && changed.has("hass"));
+  }
 
   // frontend/panel.js
   var RatgdoMgmtPanel = class extends i4 {
@@ -631,6 +635,11 @@
         this._unsub();
         this._unsub = null;
       }
+    }
+    shouldUpdate(changed) {
+      if (needsDraw(changed, this.hasUpdated)) return true;
+      this._subscribe();
+      return false;
     }
     updated(changed) {
       if (changed.has("hass")) {

@@ -61,3 +61,11 @@ test("frame height is the viewport minus the frame top, in pixels", () => {
   assert.equal(frameHeight(300, 200), 240);
   assert.equal(frameHeight(900, 100, 100), 800);
 });
+
+test("only a new hass isn't drawn again once the page is up", async () => {
+  const { needsDraw } = await import("../frontend/logic.mjs");
+  assert.equal(needsDraw(new Map([["hass", {}]]), false), true);
+  assert.equal(needsDraw(new Map([["hass", {}]]), true), false);
+  assert.equal(needsDraw(new Map([["hass", {}], ["_selected", "a"]]), true), true);
+  assert.equal(needsDraw(new Map([["narrow", true]]), true), true);
+});

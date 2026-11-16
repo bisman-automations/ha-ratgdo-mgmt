@@ -99,7 +99,9 @@ answers a Digest or Basic challenge for the upstream path (a browser
 prompt would hash the proxy path, which the firmware rejects). HomeKit
 static files are gzip; the proxy decompresses them before rewriting
 URLs. The iframe height is measured in pixels because the custom panel
-host has no definite height. An ESPHome node with no web server gets a
+host has no definite height. The panel's `shouldUpdate` skips an update
+where only `hass` changed (`needsDraw` in `logic.mjs`), so a state change
+elsewhere in the house doesn't redraw or measure the page. An ESPHome node with no web server gets a
 message and the identity that mDNS provided, not a blank frame.
 
 Door, light, lock, and obstruction entities are not created. Those
