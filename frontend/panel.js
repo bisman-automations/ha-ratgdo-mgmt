@@ -74,8 +74,10 @@ class RatgdoMgmtPanel extends LitElement {
 
   shouldUpdate(changed) {
     if (needsDraw(changed, this.hasUpdated)) return true;
-    // Not drawn again, but live updates still need a connection.
-    this._subscribe();
+    // Not drawn again, but live updates still need a connection. Started
+    // after this update: what it sets straight away (the list) belongs to
+    // the next update, not to this one, which is being skipped.
+    Promise.resolve().then(() => this._subscribe());
     return false;
   }
 

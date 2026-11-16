@@ -638,7 +638,7 @@
     }
     shouldUpdate(changed) {
       if (needsDraw(changed, this.hasUpdated)) return true;
-      this._subscribe();
+      Promise.resolve().then(() => this._subscribe());
       return false;
     }
     updated(changed) {
