@@ -90,3 +90,30 @@ export function needsDraw(changed, hasUpdated) {
   if (!hasUpdated) return true;
   return !(changed.size === 1 && changed.has("hass"));
 }
+
+/**
+ * Label of the header's Refresh button.
+ *
+ * @param {boolean} busy a refresh is running
+ * @returns {string}
+ */
+export function refreshLabel(busy) {
+  return busy ? "Refreshing…" : "Refresh";
+}
+
+/**
+ * What the panel says when Refresh fails. Home Assistant's error message is
+ * kept when there is one (for example "Unauthorized" for a non-admin).
+ *
+ * @param {unknown} err the rejection from callService
+ * @returns {string}
+ */
+export function refreshErrorText(err) {
+  const message =
+    err && typeof err === "object" && typeof err.message === "string"
+      ? err.message.trim()
+      : "";
+  return message
+    ? `Couldn't refresh: ${message}`
+    : "Couldn't refresh. Check that Home Assistant is running and try again.";
+}

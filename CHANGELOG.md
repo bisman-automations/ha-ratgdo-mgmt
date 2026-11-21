@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-11-20
+
+### Fixed
+
+- **Refresh does what it says.** Refresh only checked each controller again in the background, so the page in the panel stayed as it was and the button seemed to do nothing. It now also loads the controller's page again, including after a "Can't load the web page" message. The button reads **Refreshing…** while it works, and if Home Assistant refuses or fails, the panel says why instead of nothing happening.
+
 ## [0.1.4] - 2026-11-15
 
 ### Changed
@@ -67,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   learns the Restart button from the `/events` list instead of assuming
   `/button/restart/press`.
 
+[0.1.5]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.1...v0.1.2

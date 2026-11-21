@@ -7,6 +7,8 @@ import {
   frameMode,
   needsDraw,
   needsWebLogin,
+  refreshErrorText,
+  refreshLabel,
 } from "./logic.mjs";
 
 /**
@@ -27,6 +29,8 @@ class RatgdoMgmtPanel extends LitElement {
     _selected: { state: true },
     _frame: { state: true },
     _attempt: { state: true },
+    _refreshing: { state: true },
+    _refreshError: { state: true },
     _iframeUrl: { state: true },
     _openUrl: { state: true },
     _framePx: { state: true },
@@ -40,6 +44,8 @@ class RatgdoMgmtPanel extends LitElement {
     this._selected = null;
     this._frame = "pending";
     this._attempt = 0;
+    this._refreshing = false;
+    this._refreshError = null;
     this._iframeUrl = null;
     this._openUrl = null;
     this._framePx = 240;
@@ -250,8 +256,28 @@ class RatgdoMgmtPanel extends LitElement {
     this._attempt += 1;
   }
 
+  /**
+   * Probe every device again and load the selected admin page again.
+   *
+   * The service alone only updated the details row, so the page in the
+   * frame (or the "Can't load" card) stayed as it was and the button looked
+   * broken. It also gave no sign it was working, and a failed call was an
+   * unhandled rejection the user never saw.
+   */
   async _refresh() {
-    await this.hass.callService("ratgdo_mgmt", "refresh");
+    if (this._refreshing || !this.hass) {
+      return;
+    }
+    this._refreshing = true;
+    this._refreshError = null;
+    try {
+      await this.hass.callService("ratgdo_mgmt", "refresh");
+    } catch (err) {
+      this._refreshError = refreshErrorText(err);
+    } finally {
+      this._refreshing = false;
+    }
+    this._retry();
   }
 
   async _saveCredentials(event) {
@@ -284,8 +310,17 @@ class RatgdoMgmtPanel extends LitElement {
       <div class="wrap">
         <header>
           <h1>ratgdo Mgmt</h1>
-          <button class="quiet" @click=${this._refresh}>Refresh</button>
+          <button
+            class="quiet"
+            ?disabled=${this._refreshing}
+            @click=${this._refresh}
+          >
+            ${refreshLabel(this._refreshing)}
+          </button>
         </header>
+        ${this._refreshError
+          ? html`<div class="banner" role="alert">${this._refreshError}</div>`
+          : ""}
         ${this._devices.length
           ? html`
               <div class="tabs" role="tablist">
@@ -474,6 +509,19 @@ class RatgdoMgmtPanel extends LitElement {
       text-decoration: none;
       cursor: pointer;
       font: inherit;
+    }
+    .quiet:disabled,
+    .button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .banner {
+      flex: 0 0 auto;
+      margin: 0 16px 8px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--warning-color, #ff9800);
+      color: #fff;
     }
     .quiet-link {
       background: transparent;

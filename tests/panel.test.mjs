@@ -69,3 +69,32 @@ test("only a new hass isn't drawn again once the page is up", async () => {
   assert.equal(needsDraw(new Map([["hass", {}], ["_selected", "a"]]), true), true);
   assert.equal(needsDraw(new Map([["narrow", true]]), true), true);
 });
+
+test("Refresh says it is working and explains a failure", async () => {
+  const { refreshErrorText, refreshLabel } = await import("../frontend/logic.mjs");
+  assert.equal(refreshLabel(false), "Refresh");
+  assert.equal(refreshLabel(true), "Refreshing…");
+  assert.equal(
+    refreshErrorText(new Error("Unauthorized")),
+    "Couldn't refresh: Unauthorized",
+  );
+  assert.equal(
+    refreshErrorText({ code: "home_assistant_error", message: " Not set up " }),
+    "Couldn't refresh: Not set up",
+  );
+  assert.match(refreshErrorText(undefined), /^Couldn't refresh\. /);
+  assert.match(refreshErrorText({ message: "" }), /^Couldn't refresh\. /);
+});
+
+test("Refresh loads the admin page again, not only the details", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../frontend/panel.js", import.meta.url), "utf8");
+  const body = source.slice(
+    source.indexOf("async _refresh()"),
+    source.indexOf("\n  }\n", source.indexOf("async _refresh()")),
+  );
+  assert.match(body, /callService\("\w+", "refresh"\)/);
+  assert.match(body, /catch \(err\)/);
+  assert.match(body, /this\._retry\(\)/);
+  assert.match(source, /\?disabled=\$\{this\._refreshing\}/);
+});
