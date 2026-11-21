@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-11-21
+
+### Changed
+
+- **Ruff 0.17.6.** Linting uses the current Ruff release. Nothing changes for you.
+
 ## [0.1.5] - 2026-11-20
 
 ### Fixed
@@ -73,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   learns the Restart button from the `/events` list instead of assuming
   `/button/restart/press`.
 
+[0.1.6]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.2...v0.1.3
