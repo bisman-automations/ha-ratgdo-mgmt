@@ -40,7 +40,7 @@ import logging
 from typing import Any
 from urllib.parse import urlsplit
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
@@ -404,6 +404,58 @@ def candidates_from_registry(hass: HomeAssistant) -> list[Candidate]:
     return found
 
 
+# Device fields the registry scan reads. An update that changes none of
+# them (a firmware version, an area, our own via_device_id) can't add or
+# move a controller.
+_REGISTRY_FIELDS = frozenset(
+    {
+        "config_entry_id",
+        "configuration_url",
+        "connections",
+        "manufacturer",
+        "model",
+        "name",
+    }
+)
+
+
+@callback
+def registry_event_matters(
+    hass: HomeAssistant, event_data: dr.EventDeviceRegistryUpdatedData
+) -> bool:
+    """Return True when a device registry event could change the scan.
+
+    Only a created or changed ESPHome or HomeKit Controller row that looks
+    like a ratgdo, with a MAC and a Visit link, can. Every other device in
+    the home is left alone, so a registry change elsewhere doesn't probe
+    every controller again.
+    """
+    action = event_data["action"]
+    if action == "update":
+        changes = event_data.get("changes") or {}
+        if not _REGISTRY_FIELDS.intersection(changes):
+            return False
+    elif action != "create":
+        return False
+    device = dr.async_get(hass).async_get(event_data["device_id"])
+    if device is None:
+        return False
+    entry = hass.config_entries.async_get_entry(device.config_entry_id)
+    if entry is None:
+        return False
+    if entry.domain == ESPHOME_DOMAIN:
+        predicate: Callable[[dr.DeviceEntry], bool] = _is_esphome_ratgdo
+    elif entry.domain == HOMEKIT_DOMAIN:
+        predicate = _is_homekit_ratgdo
+    else:
+        return False
+    return (
+        predicate(device)
+        and _device_mac(device) is not None
+        and _url_host(device.configuration_url)[0] is not None
+    )
+
+
 def _registry_candidates(
     hass: HomeAssistant,
     registry: dr.DeviceRegistry,
@@ -454,14 +506,15 @@ def _registry_candidates(
 
 async def async_watch_mdns(
     hass: HomeAssistant,
-    adopt: Callable[[Candidate], Any],
+    adopt: Callable[[Candidate], None],
 ) -> Callable[[], None]:
     """Listen for ratgdo advertisements after the entry exists.
 
     ``single_config_entry`` makes Home Assistant drop later zeroconf flows
     before this integration can see them. The shared zeroconf instance is
     only used when that component is already running, so tests that never
-    start it do not open a multicast socket.
+    start it do not open a multicast socket. ``adopt`` is called in the
+    event loop with each candidate and starts the work itself.
     """
     if "zeroconf" not in hass.config.components:
         return lambda: None
@@ -499,9 +552,7 @@ async def async_watch_mdns(
         )
         if candidate is None:
             return
-        hass.loop.call_soon_threadsafe(
-            lambda found=candidate: hass.async_create_task(adopt(found))
-        )
+        hass.loop.call_soon_threadsafe(adopt, candidate)
 
     browser = ServiceBrowser(
         zc,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 import logging
@@ -223,6 +224,8 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
         self.config_entry = entry
         self.records = devices_from_options(entry.options)
         self.releases: dict[str, ReleaseInfo] = {}
+        self._scan_task: asyncio.Task[None] | None = None
+        self._scan_again = False
 
     async def _async_update_data(self) -> dict[str, DeviceRuntime]:
         """Probe every controller that is not ignored, then refresh releases."""
@@ -413,6 +416,38 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
         if refresh and self.data is not None:
             await self.async_request_refresh()
         return True
+
+    @callback
+    def async_schedule_adopt(self, candidate: Candidate) -> None:
+        """Adopt an advertisement in a task the entry cancels on unload."""
+        self.config_entry.async_create_background_task(
+            self.hass,
+            self.async_adopt(candidate),
+            f"{DOMAIN} adopt {candidate.host}",
+        )
+
+    @callback
+    def async_schedule_registry_scan(self) -> None:
+        """Scan the device registry once, or once more after the running scan.
+
+        A burst of registry changes (an integration setting up several
+        devices) probes each controller once more, not once per change.
+        The task belongs to the entry, so unloading cancels it.
+        """
+        if self._scan_task is not None and not self._scan_task.done():
+            self._scan_again = True
+            return
+        self._scan_task = self.config_entry.async_create_background_task(
+            self.hass, self._async_scan_until_settled(), f"{DOMAIN} registry scan"
+        )
+
+    async def _async_scan_until_settled(self) -> None:
+        """Scan, and scan again while changes arrived during the last one."""
+        while True:
+            self._scan_again = False
+            await self.async_scan_registry()
+            if not self._scan_again:
+                return
 
     async def async_scan_registry(self) -> None:
         """Adopt ratgdo rows already in the device registry."""

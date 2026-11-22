@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 import logging
 
 import probatio
@@ -25,7 +26,7 @@ from .const import (
     SIGNAL_DEVICES_UPDATED,
 )
 from .coordinator import RatgdoCoordinator, async_link_devices
-from .discovery import async_watch_mdns
+from .discovery import async_watch_mdns, registry_event_matters
 from .panel import async_register_panel, async_unregister_panel
 from .proxy import register_proxy
 from .records import devices_from_options, without
@@ -66,7 +67,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: RatgdoMgmtConfigEntry) -
     coordinator = RatgdoCoordinator(hass, entry)
     entry.runtime_data = coordinator
     await coordinator.async_scan_registry()
-    entry.async_on_unload(await async_watch_mdns(hass, coordinator.async_adopt))
+    entry.async_on_unload(
+        await async_watch_mdns(hass, coordinator.async_schedule_adopt)
+    )
     await coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_link_devices(hass, coordinator)
@@ -78,11 +81,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: RatgdoMgmtConfigEntry) -
 
     @callback
     def _scan_registry(_event: object) -> None:
-        """Look again when Home Assistant's device list changes."""
-        hass.async_create_task(coordinator.async_scan_registry())
+        """Look again when an ESPHome or HomeKit ratgdo row changes."""
+        coordinator.async_schedule_registry_scan()
 
     entry.async_on_unload(
-        hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED, _scan_registry)
+        hass.bus.async_listen(
+            dr.EVENT_DEVICE_REGISTRY_UPDATED,
+            _scan_registry,
+            event_filter=partial(registry_event_matters, hass),
+        )
     )
     entry.async_on_unload(coordinator.async_shutdown)
     _dispatch(hass)

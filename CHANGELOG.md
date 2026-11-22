@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-11-22
+
+### Changed
+
+- **Less checking when other devices change.** ratgdo Mgmt looked through Home Assistant's device list, and checked every controller over the network again, whenever any device in your home changed, even a lamp being renamed. It now looks again only when an ESPHome or HomeKit device that looks like a ratgdo is added, or its address, name or model changes. Several changes in a row lead to one more look, not one per change.
+
+### Fixed
+
+- **Nothing keeps running after ratgdo Mgmt is unloaded.** A look through the device list, or a controller just found on the network, could still be checked after the integration was reloaded or removed. That work now stops with it.
+
 ## [0.1.6] - 2026-11-21
 
 ### Changed
@@ -79,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   learns the Restart button from the `/events` list instead of assuming
   `/button/restart/press`.
 
+[0.1.7]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.3...v0.1.4
