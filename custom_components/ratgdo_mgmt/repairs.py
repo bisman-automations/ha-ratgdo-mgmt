@@ -113,7 +113,8 @@ class CertificateChangedFlow(RepairsFlow):
         self.hass.config_entries.async_update_entry(entry, options={"devices": records})
         runtime = getattr(entry, "runtime_data", None)
         if isinstance(runtime, RatgdoCoordinator):
-            runtime.records = records
+            # Its own copy: sharing the stored options would hide later changes.
+            runtime.records = devices_from_options(entry.options)
             await runtime.async_refresh()
             state = (runtime.data or {}).get(self._device_id)
             if state is not None and state.cert_mismatch:
@@ -157,7 +158,8 @@ class AuthFailedFlow(RepairsFlow):
                 )
                 runtime = getattr(entry, "runtime_data", None)
                 if isinstance(runtime, RatgdoCoordinator):
-                    runtime.records = records
+                    # Its own copy: sharing the stored options would hide later changes.
+                    runtime.records = devices_from_options(entry.options)
                     await runtime.async_refresh()
                     state = (runtime.data or {}).get(self._device_id)
                     if state is not None and state.auth_failed:

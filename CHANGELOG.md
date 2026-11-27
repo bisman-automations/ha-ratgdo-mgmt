@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-27
+
+### Fixed
+
+- **What ratgdo Mgmt learns about a controller is kept after a restart.** Changes found while checking a controller (a new firmware version, its name, the certificate it was trusted with, the Restart button's address) were often only kept in memory, and Home Assistant didn't save them. After a restart ratgdo Mgmt went back to older details, and could trust a controller's certificate again without asking. Every change is now saved, including after you fix a password or certificate in **Repairs**.
+
 ## [0.2.0] - 2026-11-27
 
 ### Security
@@ -105,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   learns the Restart button from the `/events` list instead of assuming
   `/button/restart/press`.
 
+[0.2.1]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.7...v0.2.0
 [0.1.7]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.5...v0.1.6

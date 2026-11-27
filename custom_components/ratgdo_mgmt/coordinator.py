@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from dataclasses import dataclass
 from datetime import datetime
 import logging
@@ -351,10 +352,15 @@ class RatgdoCoordinator(DataUpdateCoordinator[dict[str, DeviceRuntime]]):
 
     @callback
     def _persist(self) -> None:
-        """Write the records back without reloading the entry."""
+        """Write the records back without reloading the entry.
+
+        The options get a copy. Sharing ``self.records`` would make every later
+        change already equal to the stored options, so Home Assistant would
+        skip saving it.
+        """
         self.hass.config_entries.async_update_entry(
             self.config_entry,
-            options={"devices": self.records},
+            options={"devices": copy.deepcopy(self.records)},
         )
 
     def replace_records(self, records: dict[str, dict[str, Any]]) -> None:
