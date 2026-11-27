@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { frameHeight, frameMode } from "../frontend/logic.mjs";
+import { FRAME_SANDBOX, frameHeight, frameMode, fromOwnFrame } from "../frontend/logic.mjs";
 
 test("a controller with no web server does not get an iframe", () => {
   assert.equal(frameMode({ web: false }, "https://ha/proxy", "pending"), "no-web");
@@ -97,4 +97,19 @@ test("Refresh loads the admin page again, not only the details", async () => {
   assert.match(body, /catch \(err\)/);
   assert.match(body, /this\._retry\(\)/);
   assert.match(source, /\?disabled=\$\{this\._refreshing\}/);
+});
+
+test("the iframe sandbox never shares Home Assistant's origin", () => {
+  assert.ok(FRAME_SANDBOX.includes("allow-scripts"));
+  assert.ok(!FRAME_SANDBOX.includes("allow-same-origin"));
+  assert.ok(!FRAME_SANDBOX.includes("allow-top-navigation"));
+});
+
+test("only messages from the panel's own iframe count", () => {
+  const frame = {};
+  const data = { source: "ratgdo-mgmt-proxy", ok: true };
+  assert.equal(fromOwnFrame({ source: frame, data }, frame), true);
+  assert.equal(fromOwnFrame({ source: {}, data }, frame), false);
+  assert.equal(fromOwnFrame({ source: frame, data: { source: "x" } }, frame), false);
+  assert.equal(fromOwnFrame({ source: frame, data }, null), false);
 });

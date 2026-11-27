@@ -15,12 +15,12 @@ from .const import (
     CONF_PASSWORD,
     CONF_USERNAME,
     DOMAIN,
+    PROXY_SESSION_SECONDS,
     SIGNAL_DEVICES_UPDATED,
-    SIGNED_PATH_SECONDS,
     WS_SIGN_PROXY,
 )
 from .coordinator import RatgdoCoordinator
-from .proxy import signed_proxy_url
+from .proxy import async_proxy_url
 from .records import record_admin_url
 
 
@@ -86,11 +86,11 @@ async def ws_sign_proxy(
     connection: ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return a short-lived proxy URL for one controller.
+    """Return a proxy URL with a fresh session for one controller.
 
-    The signature is tied to this admin's refresh token. The panel puts it
-    on the iframe and refreshes it before it expires. The first response
-    sets the cookie that later requests from the embedded page send.
+    The session names this administrator and lasts
+    ``PROXY_SESSION_SECONDS``. The panel opens it in a sandboxed iframe and
+    asks again when the controller is opened again or Retry is pressed.
     """
     coordinator = _coordinator(hass)
     device_id = str(msg["device_id"])
@@ -101,17 +101,14 @@ async def ws_sign_proxy(
     if not record.get("web"):
         connection.send_error(msg["id"], "no_web", "This controller has no web page")
         return
-    url = signed_proxy_url(
-        hass,
-        coordinator.config_entry.entry_id,
-        device_id,
-        refresh_token_id=connection.refresh_token_id,
+    url = await async_proxy_url(
+        hass, coordinator.config_entry.entry_id, device_id, connection.user.id
     )
     connection.send_result(
         msg["id"],
         {
             "url": url,
-            "expires_in": SIGNED_PATH_SECONDS,
+            "expires_in": PROXY_SESSION_SECONDS,
             "direct_url": record_admin_url(record),
         },
     )

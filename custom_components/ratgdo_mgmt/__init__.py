@@ -30,6 +30,7 @@ from .discovery import async_watch_mdns, registry_event_matters
 from .panel import async_register_panel, async_unregister_panel
 from .proxy import register_proxy
 from .records import devices_from_options, without
+from .tls import async_load_proxy_key
 from .websocket_api import async_register_websocket
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,6 +58,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         await async_setup_component(hass, "http", {})
     async_register_websocket(hass)
     register_proxy(hass)
+    # The proxy signs its sessions with a key of its own (hacs/default#14091).
+    await async_load_proxy_key(hass)
     await async_register_panel(hass, static=True, panel=False)
     _async_register_services(hass)
     return True

@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-27
+
+### Security
+
+- **The controller's page is kept apart from Home Assistant.** The web page shown in the panel ran as part of Home Assistant, so anything on a controller's page (including ESPHome's page script, which loads from the internet), or a device on your network pretending to be a ratgdo, could have used your Home Assistant login. It now runs in a sandbox, in the panel and anywhere else it's opened: it can't see your Home Assistant login or storage, and it can't do anything in Home Assistant as you.
+- **ratgdo Mgmt signs its links with a key of its own.** It used to borrow the key Home Assistant uses for its own temporary links. It now keeps a random key in its own storage and leaves Home Assistant's alone.
+
+### Changed
+
+- **Open controller directly** replaces **Open in new tab**. It opens the controller's own address on your home network instead of the page through Home Assistant.
+- The panel's link to a controller now works for 12 hours. Opening the controller again, or **Retry**, gets a new one.
+
+### Fixed
+
+- A controller page that opens a websocket through ratgdo Mgmt no longer fails straight away.
+
 ## [0.1.7] - 2026-11-22
 
 ### Changed
@@ -89,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   learns the Restart button from the `/events` list instead of assuming
   `/button/restart/press`.
 
+[0.2.0]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.7...v0.2.0
 [0.1.7]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/bisman-automations/ha-ratgdo-mgmt/compare/v0.1.4...v0.1.5

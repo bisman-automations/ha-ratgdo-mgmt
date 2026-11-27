@@ -107,8 +107,16 @@ FRAME_LOAD_TIMEOUT_MS: Final = 8000
 FRAME_MIN_HEIGHT_PX: Final = 240
 
 ATTR_CERT_SHA256: Final = "cert_sha256"
-SIGNED_PATH_SECONDS: Final = 300
-PROXY_COOKIE: Final = "ratgdo_mgmt_proxy"
+# How long a proxy session lasts. The session is part of the proxy path
+# (the sandboxed page has no cookies); the panel asks for a new one each
+# time a controller is opened, and Retry gets a new one after it expires.
+PROXY_SESSION_SECONDS: Final = 12 * 60 * 60
+# Every proxied response runs in a sandbox without allow-same-origin, so the
+# controller's page never shares Home Assistant's origin, storage or tokens
+# (hacs/default#14091). The panel's iframe has the same sandbox.
+PROXY_SANDBOX: Final = (
+    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads"
+)
 PROXY_HOOK: Final = "__ratgdo_mgmt__/hook.js"
 PROXY_SOURCE: Final = "ratgdo-mgmt-proxy"
 

@@ -580,6 +580,12 @@
   }
   var FRAME_LOAD_TIMEOUT_MS = 8e3;
   var PROXY_SOURCE = "ratgdo-mgmt-proxy";
+  var FRAME_SANDBOX = "allow-scripts allow-forms allow-popups allow-modals allow-downloads";
+  function fromOwnFrame(event, frameWindow) {
+    return Boolean(
+      frameWindow && event && event.source === frameWindow && event.data && event.data.source === PROXY_SOURCE
+    );
+  }
   function needsDraw(changed, hasUpdated) {
     if (!hasUpdated) return true;
     return !(changed.size === 1 && changed.has("hass"));
@@ -626,7 +632,6 @@
       this._unsub = null;
       this._pending = false;
       this._timer = 0;
-      this._renewTimer = 0;
       this._signGen = 0;
       this._onMessage = (event) => this._handleMessage(event);
       this._onResize = () => this._measure();
@@ -722,13 +727,12 @@
         if (generation !== this._signGen) {
           return;
         }
-        this._openUrl = result.url;
+        this._openUrl = result.direct_url || device.url;
         if (navigate) {
           this._iframeUrl = result.url;
           this._frame = "pending";
           this._armLoadTimer();
         }
-        this._armRenew(result.expires_in);
       } catch (_err) {
         if (generation !== this._signGen) {
           return;
@@ -745,50 +749,18 @@
         }
       }, FRAME_LOAD_TIMEOUT_MS);
     }
-    _armRenew(expiresIn) {
-      const seconds = Number(expiresIn) || 300;
-      const delay = Math.max(15, seconds - 60) * 1e3;
-      this._renewTimer = window.setTimeout(() => this._renew(), delay);
-    }
-    async _renew() {
-      const device = this._device;
-      if (!device || !this.hass || device.web === false || needsWebLogin(device)) {
-        return;
-      }
-      try {
-        const result = await this.hass.connection.sendMessagePromise({
-          type: "ratgdo_mgmt/sign_proxy",
-          device_id: device.id
-        });
-        this._openUrl = result.url;
-        await fetch(result.url, {
-          credentials: "same-origin",
-          redirect: "manual",
-          cache: "no-store"
-        });
-        this._armRenew(result.expires_in);
-      } catch (_err) {
-        this._armRenew(60);
-      }
-    }
     _clearTimers() {
       if (this._timer) {
         window.clearTimeout(this._timer);
         this._timer = 0;
       }
-      if (this._renewTimer) {
-        window.clearTimeout(this._renewTimer);
-        this._renewTimer = 0;
-      }
     }
     _handleMessage(event) {
-      if (event.origin !== window.location.origin) {
+      const frame = this.renderRoot?.querySelector("iframe");
+      if (!fromOwnFrame(event, frame?.contentWindow)) {
         return;
       }
       const data = event.data;
-      if (!data || data.source !== PROXY_SOURCE) {
-        return;
-      }
       if (data.ok) {
         if (this._timer) {
           window.clearTimeout(this._timer);
@@ -907,7 +879,7 @@
         </div>
         <div><span>Last seen</span><strong>${seen}</strong></div>
         ${mode !== "no-web" ? b2`<a href=${openUrl} target="_blank" rel="noopener noreferrer"
-              >Open in new tab</a
+              >Open controller directly</a
             >` : ""}
       </section>
       ${mode === "credentials" ? b2`
@@ -975,13 +947,6 @@
                     href=${openUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    >Open in new tab</a
-                  >
-                  <a
-                    class="button quiet-link"
-                    href=${device.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     >Open controller directly</a
                   >
                 </div>
@@ -991,6 +956,8 @@
                 data-frame
                 title=${`Web page for ${device.name}`}
                 src=${this._iframeUrl}
+                sandbox=${FRAME_SANDBOX}
+                referrerpolicy="no-referrer"
                 style="height: ${height}"
                 @error=${() => {
         this._frame = "failed";

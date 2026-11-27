@@ -19,16 +19,16 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ratgdo_mgmt.const import DOMAIN
-from custom_components.ratgdo_mgmt.proxy import signed_proxy_url
+from custom_components.ratgdo_mgmt.proxy import async_proxy_url
 from tests.common import STATUS
 
 
-async def _admin_refresh(hass: Any) -> str:
-    """Return the refresh-token id of an administrator."""
+async def _admin_id(hass: Any) -> str:
+    """Return the id of an administrator."""
     for user in await hass.auth.async_get_users():
-        if user.is_admin and user.refresh_tokens:
-            return next(iter(user.refresh_tokens))
-    raise AssertionError("no admin refresh token")
+        if user.is_admin and not user.system_generated:
+            return user.id
+    raise AssertionError("no admin user")
 
 
 _CHROME = shutil.which("google-chrome") or shutil.which("chromium")
@@ -143,14 +143,10 @@ async def test_panel_shows_proxied_pages(
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    refresh = await _admin_refresh(hass)
+    admin_id = await _admin_id(hass)
     signed = {
-        "homekit:1": signed_proxy_url(
-            hass, entry.entry_id, "homekit:1", refresh_token_id=refresh
-        ),
-        "esphome:1": signed_proxy_url(
-            hass, entry.entry_id, "esphome:1", refresh_token_id=refresh
-        ),
+        "homekit:1": await async_proxy_url(hass, entry.entry_id, "homekit:1", admin_id),
+        "esphome:1": await async_proxy_url(hass, entry.entry_id, "esphome:1", admin_id),
     }
     devices = [
         {
@@ -193,7 +189,7 @@ el.hass = {{
       return Promise.resolve(() => {{}});
     }},
     sendMessagePromise(msg) {{
-      return Promise.resolve({{url: signed[msg.device_id], expires_in: 300}});
+      return Promise.resolve({{url: signed[msg.device_id], expires_in: 43200}});
     }}
   }},
   callService() {{ return Promise.resolve(); }}
@@ -225,6 +221,63 @@ async def _page_value(debug_port: int, expression: str) -> Any:
     except ClientError, KeyError, RuntimeError, StopIteration, TimeoutError, OSError:
         return None
     if not result or result.get("exceptionDetails"):
+        return None
+    return (result.get("result") or {}).get("value")
+
+
+async def _frame_value(debug_port: int, expression: str) -> Any:
+    """Evaluate inside the panel's iframe.
+
+    The iframe is sandboxed without allow-same-origin, so the page can't
+    read ``contentDocument``. DevTools can: as a separate ``iframe`` target
+    when Chrome puts the frame in its own process, or as an isolated world
+    in the page's frame tree.
+    """
+    try:
+        async with (
+            ClientSession() as session,
+            session.get(f"http://127.0.0.1:{debug_port}/json/list") as response,
+        ):
+            targets = await response.json()
+        frame_target = next(
+            (item for item in targets if item.get("type") == "iframe"), None
+        )
+        target = frame_target or next(
+            item for item in targets if item.get("type") == "page"
+        )
+        async with (
+            ClientSession() as session,
+            session.ws_connect(target["webSocketDebuggerUrl"]) as websocket,
+        ):
+            ident = 0
+
+            async def call(method: str, **params: Any) -> Any:
+                nonlocal ident
+                ident += 1
+                await websocket.send_json(
+                    {"id": ident, "method": method, "params": params}
+                )
+                while True:
+                    message = await websocket.receive_json()
+                    if message.get("id") == ident:
+                        return message.get("result") or {}
+
+            params: dict[str, Any] = {"expression": expression, "returnByValue": True}
+            if frame_target is None:
+                tree = await call("Page.getFrameTree")
+                children = (tree.get("frameTree") or {}).get("childFrames") or []
+                if not children:
+                    return None
+                world = await call(
+                    "Page.createIsolatedWorld",
+                    frameId=children[0]["frame"]["id"],
+                    worldName="ratgdo-mgmt-test",
+                )
+                params["contextId"] = world["executionContextId"]
+            result = await call("Runtime.evaluate", **params)
+    except ClientError, KeyError, RuntimeError, StopIteration, TimeoutError, OSError:
+        return None
+    if result.get("exceptionDetails"):
         return None
     return (result.get("result") or {}).get("value")
 
@@ -301,23 +354,39 @@ async def _shot(url: str, label: str, needle: str, select: str | None) -> None:
                         lambda value: bool(value and value.get("ok")),
                     )
                     assert clicked and clicked.get("ok"), clicked
-                expression = """
+                panel_expression = """
                   (() => {
                     const el = document.querySelector("ratgdo-mgmt-panel");
                     const frame = el && el.shadowRoot && el.shadowRoot.querySelector("iframe");
-                    const text = frame && frame.contentDocument && frame.contentDocument.body
-                      ? frame.contentDocument.body.innerText : "";
-                    const height = frame ? frame.getBoundingClientRect().height : 0;
-                    return {text, height};
+                    return {
+                      height: frame ? frame.getBoundingClientRect().height : 0,
+                      sandbox: frame ? frame.getAttribute("sandbox") : null,
+                      reachable: Boolean(frame && frame.contentDocument),
+                    };
                   })()
                 """
-                seen_value = await _poll_value(
-                    debug_port,
-                    expression,
-                    lambda value: (
-                        needle in (value or {}).get("text", "")
-                        and (value or {}).get("height", 0) >= 240
-                    ),
+                frame_expression = """
+                  (() => ({
+                    text: document.body ? document.body.innerText : "",
+                    origin: String(window.origin),
+                  }))()
+                """
+                seen_value: dict[str, Any] = {}
+                for _ in range(40):
+                    inside = await _frame_value(debug_port, frame_expression) or {}
+                    outside = await _page_value(debug_port, panel_expression) or {}
+                    seen_value = {**inside, **outside}
+                    if (
+                        needle in seen_value.get("text", "")
+                        and seen_value.get("height", 0) >= 240
+                    ):
+                        break
+                    await asyncio.sleep(0.25)
+                # Sandboxed: an opaque origin the panel can't reach into.
+                assert seen_value.get("origin") == "null", seen_value
+                assert seen_value.get("reachable") is False, seen_value
+                assert "allow-same-origin" not in (seen_value.get("sandbox") or ""), (
+                    seen_value
                 )
                 seen = (seen_value or {}).get("text") or ""
                 height = (seen_value or {}).get("height") or 0

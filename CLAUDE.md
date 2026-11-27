@@ -90,9 +90,24 @@ Scheme `auto` tries HTTP, then HTTPS, and remembers which one answered.
 is HTTPS. `verify_ssl` on uses Home Assistant's verifying session. A
 stored pin that no longer matches raises a repair.
 
-The panel does not embed the controller directly. The iframe loads
-`/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}/` with a short-lived
-signed path. That response sets an HttpOnly cookie. The proxy never
+The panel does not embed the controller directly, and the controller's
+page never runs on Home Assistant's origin (hacs/default#14091). The iframe
+loads `/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}/{session}/`. The
+session is an HMAC-signed token (admin user id, entry, device, expiry,
+`PROXY_SESSION_SECONDS`) made by `ratgdo_mgmt/sign_proxy` and signed with
+ratgdo Mgmt's own random key (`tls.async_load_proxy_key`, Store
+`ratgdo_mgmt.proxy_key`); Home Assistant's `DATA_SIGN_SECRET` is never used.
+Every response carries `Content-Security-Policy: sandbox ...` without
+`allow-same-origin` (`PROXY_SANDBOX`, `SANDBOX_HEADERS`), and the iframe has
+the same `sandbox` (`FRAME_SANDBOX` in `logic.mjs`). A sandboxed page has no
+cookies (hence the session in the path) and its requests back are
+cross-origin: the proxy sends `Access-Control-Allow-Origin: *` (never
+credentials) and answers preflights itself (`_preflight`); the view's
+`register` leaves out Home Assistant's CORS, which refuses origin "null".
+The hook gives the page in-memory `localStorage`, `sessionStorage` and
+`document.cookie`, and posts to the panel with target `"*"`; the panel
+accepts only messages from its own iframe (`fromOwnFrame`). Open controller
+directly links to the controller, never the proxy. The proxy never
 forwards Home Assistant's bearer token. It forwards `X-API-Key`, fills
 that header from the saved password when the page did not send one, and
 answers a Digest or Basic challenge for the upstream path (a browser

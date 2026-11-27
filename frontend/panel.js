@@ -2,9 +2,10 @@ import { LitElement, css, html } from "lit";
 
 import {
   FRAME_LOAD_TIMEOUT_MS,
-  PROXY_SOURCE,
+  FRAME_SANDBOX,
   frameHeight,
   frameMode,
+  fromOwnFrame,
   needsDraw,
   needsWebLogin,
   refreshErrorText,
@@ -14,10 +15,11 @@ import {
 /**
  * Admin sidebar panel: one tab per ratgdo.
  *
- * The iframe loads a signed Home Assistant proxy URL, not the controller.
- * The signed URL lasts a few minutes. This element refreshes it, and the
- * cookie it sets, without navigating the iframe away from the page the
- * user is on. The iframe's height is set in pixels from the viewport,
+ * The iframe loads a Home Assistant proxy URL with a session in its path,
+ * not the controller, in a sandbox without allow-same-origin: the
+ * controller's page can't reach Home Assistant's storage or tokens. Opening
+ * the controller again, or Retry, asks for a new session. Open in new tab
+ * goes to the controller directly, never through the proxy. The iframe's height is set in pixels from the viewport,
  * because the custom panel host has no definite height of its own.
  */
 class RatgdoMgmtPanel extends LitElement {
@@ -54,7 +56,6 @@ class RatgdoMgmtPanel extends LitElement {
     this._unsub = null;
     this._pending = false;
     this._timer = 0;
-    this._renewTimer = 0;
     this._signGen = 0;
     this._onMessage = (event) => this._handleMessage(event);
     this._onResize = () => this._measure();
@@ -167,13 +168,12 @@ class RatgdoMgmtPanel extends LitElement {
       if (generation !== this._signGen) {
         return;
       }
-      this._openUrl = result.url;
+      this._openUrl = result.direct_url || device.url;
       if (navigate) {
         this._iframeUrl = result.url;
         this._frame = "pending";
         this._armLoadTimer();
       }
-      this._armRenew(result.expires_in);
     } catch (_err) {
       if (generation !== this._signGen) {
         return;
@@ -192,53 +192,19 @@ class RatgdoMgmtPanel extends LitElement {
     }, FRAME_LOAD_TIMEOUT_MS);
   }
 
-  _armRenew(expiresIn) {
-    const seconds = Number(expiresIn) || 300;
-    const delay = Math.max(15, seconds - 60) * 1000;
-    this._renewTimer = window.setTimeout(() => this._renew(), delay);
-  }
-
-  async _renew() {
-    const device = this._device;
-    if (!device || !this.hass || device.web === false || needsWebLogin(device)) {
-      return;
-    }
-    try {
-      const result = await this.hass.connection.sendMessagePromise({
-        type: "ratgdo_mgmt/sign_proxy",
-        device_id: device.id,
-      });
-      this._openUrl = result.url;
-      await fetch(result.url, {
-        credentials: "same-origin",
-        redirect: "manual",
-        cache: "no-store",
-      });
-      this._armRenew(result.expires_in);
-    } catch (_err) {
-      this._armRenew(60);
-    }
-  }
-
   _clearTimers() {
     if (this._timer) {
       window.clearTimeout(this._timer);
       this._timer = 0;
     }
-    if (this._renewTimer) {
-      window.clearTimeout(this._renewTimer);
-      this._renewTimer = 0;
-    }
   }
 
   _handleMessage(event) {
-    if (event.origin !== window.location.origin) {
+    const frame = this.renderRoot?.querySelector("iframe");
+    if (!fromOwnFrame(event, frame?.contentWindow)) {
       return;
     }
     const data = event.data;
-    if (!data || data.source !== PROXY_SOURCE) {
-      return;
-    }
     if (data.ok) {
       if (this._timer) {
         window.clearTimeout(this._timer);
@@ -370,7 +336,7 @@ class RatgdoMgmtPanel extends LitElement {
         <div><span>Last seen</span><strong>${seen}</strong></div>
         ${mode !== "no-web"
           ? html`<a href=${openUrl} target="_blank" rel="noopener noreferrer"
-              >Open in new tab</a
+              >Open controller directly</a
             >`
           : ""}
       </section>
@@ -448,13 +414,6 @@ class RatgdoMgmtPanel extends LitElement {
                     href=${openUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    >Open in new tab</a
-                  >
-                  <a
-                    class="button quiet-link"
-                    href=${device.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     >Open controller directly</a
                   >
                 </div>
@@ -465,6 +424,8 @@ class RatgdoMgmtPanel extends LitElement {
                 data-frame
                 title=${`Web page for ${device.name}`}
                 src=${this._iframeUrl}
+                sandbox=${FRAME_SANDBOX}
+                referrerpolicy="no-referrer"
                 style="height: ${height}"
                 @error=${() => {
                   this._frame = "failed";

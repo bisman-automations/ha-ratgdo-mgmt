@@ -17,12 +17,16 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 import ssl
 from typing import Any
 
 from aiohttp import Fingerprint
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
+
+from .const import DOMAIN
 
 _HEX = frozenset("0123456789abcdef")
 _UNVERIFIED: ssl.SSLContext | None = None
@@ -97,24 +101,46 @@ def pinned_ssl(fingerprint: str) -> Fingerprint:
     return Fingerprint(bytes.fromhex(normalized))
 
 
-def sign_secret(hass: HomeAssistant) -> bytes:
-    """Return the key Home Assistant uses to sign temporary paths.
+# The proxy's own signing key, kept in ratgdo Mgmt's storage. Home
+# Assistant's signed-path secret belongs to the http component and is not
+# touched (hacs/default#14091).
+_KEY_STORE = "ratgdo_mgmt.proxy_key"
+_KEY_STORE_VERSION = 1
+_DATA_KEY = "proxy_key"
 
-    Sharing that key means a restart drops proxy cookies the same way it
-    drops signed URLs. The key is created on first use, which is what
-    ``async_sign_path`` does too.
+
+async def async_load_proxy_key(hass: HomeAssistant) -> bytes:
+    """Return the proxy signing key, creating and saving it the first time.
+
+    The key is random, lives in ``.storage/ratgdo_mgmt.proxy_key`` and is
+    cached for the rest of the run, so sessions survive a restart until
+    they expire and nothing else in Home Assistant can mint one.
     """
-    from homeassistant.components.http.auth import DATA_SIGN_SECRET
+    data: dict[str, Any] = hass.data.setdefault(DOMAIN, {})
+    cached = data.get(_DATA_KEY)
+    if isinstance(cached, bytes):
+        return cached
+    store: Store[dict[str, Any]] = Store(hass, _KEY_STORE_VERSION, _KEY_STORE)
+    stored = await store.async_load() or {}
+    key = stored.get("key") if isinstance(stored, dict) else None
+    if not isinstance(key, str) or len(key) < 64:
+        key = secrets.token_hex(32)
+        await store.async_save({"key": key})
+    cached = data.get(_DATA_KEY)
+    if isinstance(cached, bytes):
+        return cached
+    data[_DATA_KEY] = key.encode()
+    return data[_DATA_KEY]
 
-    secret = hass.data.get(DATA_SIGN_SECRET)
-    if not isinstance(secret, str) or not secret:
-        import secrets
 
-        secret = secrets.token_hex()
-        hass.data[DATA_SIGN_SECRET] = secret
-    return secret.encode()
+def proxy_key(hass: HomeAssistant) -> bytes:
+    """Return the loaded key. ``async_load_proxy_key`` must have run first."""
+    key = hass.data.get(DOMAIN, {}).get(_DATA_KEY)
+    if not isinstance(key, bytes):
+        raise RuntimeError("ratgdo Mgmt's proxy key is not loaded")
+    return key
 
 
 def keyed_digest(hass: HomeAssistant, payload: bytes) -> str:
-    """Return hex HMAC-SHA256 of ``payload`` under the instance key."""
-    return hmac.new(sign_secret(hass), payload, hashlib.sha256).hexdigest()
+    """Return hex HMAC-SHA256 of ``payload`` under ratgdo Mgmt's own key."""
+    return hmac.new(proxy_key(hass), payload, hashlib.sha256).hexdigest()

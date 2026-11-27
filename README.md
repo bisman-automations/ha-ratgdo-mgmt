@@ -104,12 +104,19 @@ only if you expected the change.
 
 **ratgdo Mgmt** is in the sidebar for administrators. Each controller is a
 tab with its name, address, firmware, version, whether it is online, and
-when it was last seen, plus **Open in new tab**.
+when it was last seen, plus **Open controller directly**.
 
 The web page is loaded through Home Assistant, not straight from the
 controller. That is what lets the tab show a plain HTTP controller while
 Home Assistant itself is open over HTTPS. Only an administrator can open
-the proxied page. **Open in new tab** uses the same proxied address.
+the proxied page, and each time you open a controller the panel gets a new
+link that works for 12 hours.
+
+The controller's page runs in a sandbox, kept apart from Home Assistant:
+it can't see your Home Assistant login or do anything in Home Assistant as
+you. A page that keeps settings in the browser forgets them when you open
+the controller again. **Open controller directly** opens the controller's
+own address in a new tab (on your home network), not the proxied page.
 
 If the page does not load, the tab says so instead of leaving a blank area.
 **Retry** asks again. **Open controller directly** is the controller's own

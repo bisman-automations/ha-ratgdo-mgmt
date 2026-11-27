@@ -1,15 +1,25 @@
-"""Authenticated reverse proxy to a ratgdo web UI.
+"""Sandboxed reverse proxy to a ratgdo web UI.
 
-The sidebar iframe cannot send Home Assistant's bearer token, and a signed
-path (``async_sign_path``) only authorizes one exact GET. The panel therefore
-loads a signed URL, and that response sets a short-lived HttpOnly cookie
-scoped to this controller. Later requests from the embedded app, including POST
-and websockets, present the cookie.
+The panel's iframe cannot send Home Assistant's bearer token. The panel
+asks the ``ratgdo_mgmt/sign_proxy`` websocket command (administrators only)
+for a proxy URL. That URL carries a session: an HMAC-signed token naming
+the administrator, the entry, the controller and an expiry, signed with
+ratgdo Mgmt's own random key (``tls.async_load_proxy_key``). Every request
+under the prefix, including POST, EventSource and websockets, is checked
+against it, and the administrator must still be an active admin.
 
-``requires_auth`` stays off on the view class because Home Assistant rejects
-the request before the handler when that flag is set, which would drop the
-cookie. ``_authorize`` applies the same rule itself: no credentials is 401,
-a signed-in user who is not an administrator is 403.
+The controller's page is never allowed to share Home Assistant's origin
+(hacs/default#14091). Every response carries a
+``Content-Security-Policy: sandbox`` without ``allow-same-origin``, and the
+panel's iframe has the same sandbox, so the page (and anything it loads,
+such as ESPHome's ``www.js`` from oi.esphome.io) runs on an opaque origin:
+it can't read Home Assistant's storage or tokens or call Home Assistant as
+the admin. Opened as a top-level page it gets the same sandbox. A
+sandboxed page has no cookies, which is why the session is in the path,
+and its requests back to Home Assistant are cross-origin, which is why the
+proxy answers CORS (never with credentials) and preflight requests itself.
+The injected hook gives the page in-memory ``localStorage``,
+``sessionStorage`` and ``document.cookie``.
 
 Home Assistant's ``Authorization: Bearer`` header is never forwarded. The
 HomeKit web UI authenticates with ``X-API-Key`` (``functions.js``), which
@@ -24,8 +34,7 @@ HomeKit static files are gzip-compressed before they are stored
 decompressed, rewritten, and sent uncompressed so ``<base>`` and the hook
 can be inserted. The controller is contacted with the pinned certificate
 when the record is HTTPS. Responses drop ``X-Frame-Options`` and the CSP
-``frame-ancestors`` directive. Home Assistant's own header middleware then
-sets ``X-Frame-Options: SAMEORIGIN``, which still allows the panel.
+``frame-ancestors`` directive, and add the sandbox policy.
 """
 
 from __future__ import annotations
@@ -33,7 +42,6 @@ from __future__ import annotations
 import asyncio
 import base64
 from collections.abc import Mapping
-from datetime import timedelta
 import gzip
 import hmac
 import json
@@ -48,12 +56,14 @@ from aiohttp.client_exceptions import ServerFingerprintMismatch
 from aiohttp.hdrs import AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, LOCATION
 from multidict import CIMultiDict
 
-from homeassistant.components.http.auth import SIGN_QUERY_PARAM, async_sign_path
-from homeassistant.components.http.const import KEY_HASS_USER
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.http import KEY_AUTHENTICATED, KEY_HASS, HomeAssistantView
+from homeassistant.helpers.http import (
+    KEY_HASS,
+    HomeAssistantView,
+    request_handler_factory,
+)
 
 from .auth import api_key, authorization_for_challenge, basic_authorization
 from .client import origin_url
@@ -64,15 +74,15 @@ from .const import (
     DOMAIN,
     FIRMWARE_ESPHOME,
     FIRMWARE_HOMEKIT,
-    PROXY_COOKIE,
     PROXY_HOOK,
+    PROXY_SANDBOX,
+    PROXY_SESSION_SECONDS,
     PROXY_SOURCE,
     SCHEME_HTTP,
     SCHEME_HTTPS,
-    SIGNED_PATH_SECONDS,
 )
 from .records import credentials_for, devices_from_options
-from .tls import keyed_digest, pinned_ssl
+from .tls import async_load_proxy_key, keyed_digest, pinned_ssl
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_REWRITE = 8 * 1024 * 1024
@@ -127,29 +137,44 @@ def device_segment(device_id: str) -> str:
     return quote(device_id, safe=":")
 
 
-def proxy_prefix(entry_id: str, device_id: str) -> str:
-    """Return the proxy path for one controller, without a trailing slash."""
-    return f"/api/ratgdo_mgmt/proxy/{entry_id}/{device_segment(device_id)}"
+def proxy_prefix(entry_id: str, device_id: str, session: str) -> str:
+    """Return the proxy path for one controller and session, without a trailing slash."""
+    return f"/api/ratgdo_mgmt/proxy/{entry_id}/{device_segment(device_id)}/{session}"
 
 
-def signed_proxy_url(
+def session_token(
     hass: HomeAssistant,
+    user_id: str,
     entry_id: str,
     device_id: str,
     *,
-    refresh_token_id: str | None,
+    seconds: int = PROXY_SESSION_SECONDS,
 ) -> str:
-    """Return a temporary URL an iframe can open without a bearer token.
+    """Return a signed session for one admin, entry and controller.
 
-    The signature covers the root path only. The response sets the session
-    cookie that authorizes everything under that prefix.
+    Base64url and hex only, so it is one safe path segment. The key must be
+    loaded (``async_load_proxy_key``).
     """
-    return async_sign_path(
-        hass,
-        f"{proxy_prefix(entry_id, device_id)}/",
-        timedelta(seconds=SIGNED_PATH_SECONDS),
-        refresh_token_id=refresh_token_id,
-    )
+    payload = json.dumps(
+        {
+            "e": entry_id,
+            "k": device_id,
+            "u": user_id,
+            "exp": int(time.time()) + seconds,
+        },
+        separators=(",", ":"),
+    ).encode()
+    encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+    return f"{encoded}.{keyed_digest(hass, payload)}"
+
+
+async def async_proxy_url(
+    hass: HomeAssistant, entry_id: str, device_id: str, user_id: str
+) -> str:
+    """Return the URL the panel's iframe opens for one controller."""
+    await async_load_proxy_key(hass)
+    session = session_token(hass, user_id, entry_id, device_id)
+    return f"{proxy_prefix(entry_id, device_id, session)}/"
 
 
 def _origins(record: Mapping[str, Any]) -> tuple[str, str]:
@@ -325,6 +350,49 @@ def hook_javascript(prefix: str, origins: tuple[str, str]) -> str:
   const WS_ORIGINS = {json.dumps(ws_origins)};
   const SOURCE = {json.dumps(PROXY_SOURCE)};
 
+  // The page is sandboxed on an opaque origin, where localStorage,
+  // sessionStorage and document.cookie throw. Give it in-memory ones that
+  // last as long as the page.
+  function memoryStorage() {{
+    const items = new Map();
+    return {{
+      get length() {{ return items.size; }},
+      key(index) {{ return [...items.keys()][index] ?? null; }},
+      getItem(name) {{
+        const value = items.get(String(name));
+        return value === undefined ? null : value;
+      }},
+      setItem(name, value) {{ items.set(String(name), String(value)); }},
+      removeItem(name) {{ items.delete(String(name)); }},
+      clear() {{ items.clear(); }},
+    }};
+  }}
+  for (const name of ["localStorage", "sessionStorage"]) {{
+    let usable = false;
+    try {{ usable = Boolean(window[name]); }} catch (_err) {{ usable = false; }}
+    if (!usable) {{
+      try {{
+        Object.defineProperty(window, name, {{ value: memoryStorage(), configurable: true }});
+      }} catch (_err) {{}}
+    }}
+  }}
+  try {{
+    void document.cookie;
+  }} catch (_err) {{
+    const jar = new Map();
+    try {{
+      Object.defineProperty(document, "cookie", {{
+        configurable: true,
+        get() {{ return [...jar].map(([k, v]) => k + "=" + v).join("; "); }},
+        set(text) {{
+          const pair = String(text).split(";", 1)[0];
+          const at = pair.indexOf("=");
+          if (at > 0) jar.set(pair.slice(0, at).trim(), pair.slice(at + 1).trim());
+        }},
+      }});
+    }} catch (_err2) {{}}
+  }}
+
   function boundary(url, origin) {{
     return url === origin || url.startsWith(origin + "/")
       || url.startsWith(origin + "?") || url.startsWith(origin + "#");
@@ -402,9 +470,46 @@ def hook_javascript(prefix: str, origins: tuple[str, str]) -> str:
   window.open = (url, target, features) =>
     origOpenWindow.call(window, url ? rewrite(String(url)) : url, target, features);
 
-  parent.postMessage({{ source: SOURCE, ok: true }}, location.origin);
+  // The page's origin is opaque, so it can't name the panel's; the panel
+  // checks the message comes from its own iframe.
+  parent.postMessage({{ source: SOURCE, ok: true }}, "*");
 }})();
 """
+
+
+# Sent with every proxied response, the hook and the error pages. The page
+# runs on an opaque origin, so its requests back here are cross-origin: they
+# never carry credentials, and the session in the path is what authorizes
+# them, so any origin may read the answer.
+SANDBOX_HEADERS: dict[str, str] = {
+    "Content-Security-Policy": PROXY_SANDBOX,
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Expose-Headers": "*",
+    # The session is in the URL; don't hand it to another site.
+    "Referrer-Policy": "no-referrer",
+}
+# The controller's own copies of the headers the proxy sets.
+_SANDBOX_KEYS = frozenset(
+    {
+        "access-control-allow-origin",
+        "access-control-allow-credentials",
+        "access-control-expose-headers",
+        "referrer-policy",
+    }
+)
+
+
+def _preflight(request: web.Request) -> web.Response:
+    """Answer a CORS preflight from the sandboxed page without the controller."""
+    headers = dict(SANDBOX_HEADERS)
+    headers["Access-Control-Allow-Methods"] = request.headers.get(
+        "Access-Control-Request-Method", "GET"
+    )
+    wanted = request.headers.get("Access-Control-Request-Headers")
+    if wanted:
+        headers["Access-Control-Allow-Headers"] = wanted
+    headers["Access-Control-Max-Age"] = "600"
+    return web.Response(status=204, headers=headers)
 
 
 def _error_page(status: int, title: str, message: str) -> web.Response:
@@ -416,10 +521,12 @@ def _error_page(status: int, title: str, message: str) -> web.Response:
         f"<title>{safe_title}</title></head><body>"
         f"<h1>{safe_title}</h1><p>{safe_message}</p>"
         "<script>parent.postMessage({source:"
-        f"{json.dumps(PROXY_SOURCE)},ok:false}}, location.origin);</script>"
+        f"{json.dumps(PROXY_SOURCE)},ok:false}}, '*');</script>"
         "</body></html>"
     )
-    return web.Response(status=status, text=body, content_type="text/html")
+    return web.Response(
+        status=status, text=body, content_type="text/html", headers=SANDBOX_HEADERS
+    )
 
 
 def _media_type(header: str | None) -> str:
@@ -436,13 +543,13 @@ class RatgdoProxyView(HomeAssistantView):
     # converter. ``.+`` is the rest of the path, including nested segments.
     # Device ids contain colons (``manual:1``), which is fine: ``{device_id}``
     # is one segment, and the path is everything after it.
-    url = "/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}/{path:.+}"
+    url = "/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}/{session}/{path:.+}"
     extra_urls = [
-        "/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}",
-        "/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}/",
+        "/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}/{session}",
+        "/api/ratgdo_mgmt/proxy/{entry_id}/{device_id}/{session}/",
     ]
     name = "api:ratgdo_mgmt:proxy"
-    # See the module docstring. Authentication is enforced in ``_authorize``.
+    # The session in the path is the credential; see ``_authorize``.
     requires_auth = False
 
     def __init__(self) -> None:
@@ -450,20 +557,39 @@ class RatgdoProxyView(HomeAssistantView):
         for method in ("post", "put", "patch", "delete", "head", "options"):
             setattr(self, method, self.get)
 
+    def register(
+        self, hass: HomeAssistant, app: web.Application, router: web.UrlDispatcher
+    ) -> None:
+        """Register the routes without Home Assistant's CORS handling.
+
+        Home Assistant answers a CORS preflight itself for every view and
+        refuses an origin it wasn't configured with. The sandboxed page's
+        origin is "null", so its requests with ``X-API-Key`` never reached
+        this view. The proxy answers its own preflights (``_preflight``),
+        and only for a valid session.
+        """
+        assert self.url is not None
+        for method in ("get", "post", "delete", "put", "patch", "head", "options"):
+            handler = request_handler_factory(hass, self, getattr(self, method))
+            for url in (self.url, *self.extra_urls):
+                router.add_route(method, url, handler)
+
     async def get(
         self,
         request: web.Request,
         entry_id: str,
         device_id: str,
+        session: str,
         path: str = "",
     ) -> web.StreamResponse:
         """Forward one request, or serve the rewrite hook."""
-        user, failure = await _authorize(request, entry_id, device_id)
+        user, failure = await _authorize(request, entry_id, device_id, session)
         if failure is not None or user is None:
             return _error_page(
                 failure or 401,
                 "Not allowed",
-                "Sign in to Home Assistant as an administrator to open this controller.",
+                "This link has expired or isn't for an administrator. "
+                "Open the controller again from the ratgdo Mgmt panel.",
             )
         record = _record(request, entry_id, device_id)
         if record is None:
@@ -472,22 +598,21 @@ class RatgdoProxyView(HomeAssistantView):
                 "ratgdo not found",
                 "That controller is not in ratgdo Mgmt.",
             )
-        prefix = proxy_prefix(entry_id, device_id)
+        if request.method == "OPTIONS" and request.headers.get(
+            "Access-Control-Request-Method"
+        ):
+            return _preflight(request)
+        prefix = proxy_prefix(entry_id, device_id, session)
         if path.rstrip("/") == PROXY_HOOK:
             origins = _origins(record)
             return web.Response(
                 text=hook_javascript(prefix, origins),
                 content_type="application/javascript",
-                headers={
-                    "Cache-Control": "no-store",
-                    "Set-Cookie": _cookie(request, user.id, entry_id, device_id),
-                },
+                headers={**SANDBOX_HEADERS, "Cache-Control": "no-store"},
             )
         if request.headers.get("Upgrade", "").lower() == "websocket":
-            return await _proxy_websocket(
-                request, record, path, user, entry_id, device_id
-            )
-        return await _proxy_http(request, record, path, user, entry_id, device_id)
+            return await _proxy_websocket(request, record, path)
+        return await _proxy_http(request, record, path, prefix)
 
 
 def _record(
@@ -505,103 +630,50 @@ def _record(
 
 
 async def _authorize(
-    request: web.Request, entry_id: str, device_id: str
+    request: web.Request, entry_id: str, device_id: str, session: str
 ) -> tuple[Any, int | None]:
-    """Return ``(user, None)`` or ``(None, status)``.
+    """Return ``(user, None)`` or ``(None, status)`` for the session in the path.
 
-    A bearer token or a signed path is checked by Home Assistant's auth
-    middleware, which sets ``KEY_AUTHENTICATED``. The cookie covers the
-    requests an iframe makes after that first page.
+    401: no session, a forged one, one for another controller, or an expired
+    one. 403: the user is no longer an administrator.
     """
     hass: HomeAssistant = request.app[KEY_HASS]
-    if request.get(KEY_AUTHENTICATED):
-        user = request.get(KEY_HASS_USER)
-        if user is None:
-            return None, 401
-        if not user.is_admin:
-            return None, 403
-        return user, None
-    user, rejected = await _user_from_cookie(hass, request, entry_id, device_id)
-    if rejected:
-        return None, 403
-    if user is None:
+    if "." not in session:
         return None, 401
-    return user, None
-
-
-async def _user_from_cookie(
-    hass: HomeAssistant,
-    request: web.Request,
-    entry_id: str,
-    device_id: str,
-) -> tuple[Any, bool]:
-    """Return ``(user, rejected)``. ``rejected`` means the user is not an admin."""
-    raw = request.cookies.get(PROXY_COOKIE)
-    if not raw or "." not in raw:
-        return None, False
-    encoded, signature = raw.split(".", 1)
+    encoded, signature = session.split(".", 1)
     padding = "=" * (-len(encoded) % 4)
     try:
         payload = base64.urlsafe_b64decode((encoded + padding).encode())
     except ValueError:
-        return None, False
-    if not _digest_matches(hass, payload, signature):
-        return None, False
+        return None, 401
+    await async_load_proxy_key(hass)
+    if not hmac.compare_digest(keyed_digest(hass, payload), signature):
+        return None, 401
     try:
         data = json.loads(payload)
     except ValueError:
-        return None, False
+        return None, 401
     if not isinstance(data, dict):
-        return None, False
+        return None, 401
     if data.get("e") != entry_id or data.get("k") != device_id:
-        return None, False
+        return None, 401
     try:
         expires = int(data.get("exp") or 0)
     except TypeError, ValueError:
-        return None, False
+        return None, 401
     if expires < int(time.time()):
-        return None, False
+        return None, 401
     user = await hass.auth.async_get_user(str(data.get("u") or ""))
     if user is None or not user.is_active:
-        return None, False
+        return None, 401
     if not user.is_admin:
-        return None, True
-    return user, False
-
-
-def _digest_matches(hass: HomeAssistant, payload: bytes, signature: str) -> bool:
-    """Compare the cookie HMAC without leaking the length through timing."""
-    expected = keyed_digest(hass, payload)
-    return hmac.compare_digest(expected, signature)
-
-
-def _cookie(request: web.Request, user_id: str, entry_id: str, device_id: str) -> str:
-    """Return a Set-Cookie value bound to this admin, entry, and controller."""
-    hass: HomeAssistant = request.app[KEY_HASS]
-    expires = int(time.time()) + SIGNED_PATH_SECONDS
-    payload = json.dumps(
-        {"e": entry_id, "k": device_id, "u": user_id, "exp": expires},
-        separators=(",", ":"),
-    ).encode()
-    token = base64.urlsafe_b64encode(payload).decode().rstrip("=")
-    token = f"{token}.{keyed_digest(hass, payload)}"
-    parts = [
-        f"{PROXY_COOKIE}={token}",
-        f"Path={proxy_prefix(entry_id, device_id)}",
-        f"Max-Age={SIGNED_PATH_SECONDS}",
-        "HttpOnly",
-        "SameSite=Lax",
-    ]
-    if request.secure:
-        parts.append("Secure")
-    return "; ".join(parts)
+        return None, 403
+    return user, None
 
 
 def _forward_query(request: web.Request) -> list[tuple[str, str]]:
-    """Return the query without Home Assistant's signature parameter."""
-    return [
-        (key, value) for key, value in request.query.items() if key != SIGN_QUERY_PARAM
-    ]
+    """Return the query to send to the controller."""
+    return list(request.query.items())
 
 
 def _forward_request_headers(
@@ -632,9 +704,6 @@ def _forward_request_headers(
             headers[key] = f"{upstream_origin}/"
             continue
         headers[key] = value
-    cookie = _upstream_cookie(request)
-    if cookie:
-        headers["Cookie"] = cookie
     if not saw_api_key and record.get("firmware") == FIRMWARE_HOMEKIT:
         username, password = credentials_for(record)
         if password:
@@ -650,22 +719,11 @@ def _forward_request_headers(
     return headers
 
 
-def _upstream_cookie(request: web.Request) -> str:
-    """Return the Cookie header without the proxy session cookie."""
-    pairs = [
-        f"{key}={value}"
-        for key, value in request.cookies.items()
-        if key != PROXY_COOKIE
-    ]
-    return "; ".join(pairs)
-
-
 def _response_headers(
     upstream: Any,
     *,
     prefix: str,
     origins: tuple[str, str],
-    cookie: str,
     rewritten: bool,
     drop_encoding: bool = False,
 ) -> CIMultiDict[str]:
@@ -673,7 +731,11 @@ def _response_headers(
     headers: CIMultiDict[str] = CIMultiDict()
     for key, value in upstream.headers.items():
         lower = key.lower()
-        if lower in _DROP_RESPONSE or (drop_encoding and lower == "content-encoding"):
+        if (
+            lower in _DROP_RESPONSE
+            or lower in _SANDBOX_KEYS
+            or (drop_encoding and lower == "content-encoding")
+        ):
             continue
         if lower == "set-cookie":
             headers.add(key, rewrite_set_cookie(value, prefix=prefix))
@@ -684,12 +746,14 @@ def _response_headers(
         if rewritten and lower == CONTENT_LENGTH.lower():
             continue
         headers.add(key, value)
+    for key, value in SANDBOX_HEADERS.items():
+        headers[key] = value
     policy = upstream.headers.get("Content-Security-Policy")
     if policy:
         stripped = strip_frame_ancestors(policy)
         if stripped:
-            headers["Content-Security-Policy"] = stripped
-    headers.add("Set-Cookie", cookie)
+            # Both policies apply; the sandbox one can only take away.
+            headers.add("Content-Security-Policy", stripped)
     return headers
 
 
@@ -697,9 +761,7 @@ async def _proxy_http(
     request: web.Request,
     record: Mapping[str, Any],
     path: str,
-    user: Any,
-    entry_id: str,
-    device_id: str,
+    prefix: str,
 ) -> web.StreamResponse:
     """Stream one HTTP response, rewriting text bodies before they go out."""
     security = _security(record)
@@ -719,8 +781,6 @@ async def _proxy_http(
     upstream = _upstream_url(record, path, _forward_query(request))
     timeout = ClientTimeout(total=60, sock_connect=10)
     body = await request.read() if request.can_read_body else None
-    prefix = proxy_prefix(entry_id, device_id)
-    cookie = _cookie(request, user.id, entry_id, device_id)
     headers = _forward_request_headers(request, origin, record)
     try:
         response_cm = session.request(
@@ -786,7 +846,6 @@ async def _proxy_http(
             upstream_response,
             prefix=prefix,
             origins=origins,
-            cookie=cookie,
         )
     finally:
         await response_cm.__aexit__(None, None, None)
@@ -798,7 +857,6 @@ async def _send_upstream(
     *,
     prefix: str,
     origins: tuple[str, str],
-    cookie: str,
 ) -> web.StreamResponse:
     """Write the upstream response, buffering text that has to be rewritten."""
     media = _media_type(upstream.headers.get(CONTENT_TYPE))
@@ -811,7 +869,6 @@ async def _send_upstream(
             upstream,
             prefix=prefix,
             origins=origins,
-            cookie=cookie,
             rewritten=True,
             drop_encoding=decoded is not None,
         )
@@ -831,7 +888,6 @@ async def _send_upstream(
         upstream,
         prefix=prefix,
         origins=origins,
-        cookie=cookie,
         rewritten=False,
     )
     stream = web.StreamResponse(status=upstream.status, headers=headers)
@@ -894,9 +950,6 @@ async def _proxy_websocket(
     request: web.Request,
     record: Mapping[str, Any],
     path: str,
-    user: Any,
-    entry_id: str,
-    device_id: str,
 ) -> web.StreamResponse:
     """Bridge a browser websocket to the controller over the pinned connection."""
     security = _security(record)
@@ -928,7 +981,7 @@ async def _proxy_websocket(
         upstream = await session.ws_connect(
             upstream_url,
             ssl=ssl_param,
-            headers=_forward_request_headers(request, base.rstrip("/")),
+            headers=_forward_request_headers(request, base.rstrip("/"), record),
             protocols=protocols,
             timeout=ClientWSTimeout(ws_close=10),
         )
