@@ -76,3 +76,40 @@ async def test_reboot_service_rejects_an_unknown_id(
             {"device_id": "missing"},
             blocking=True,
         )
+
+
+async def test_panel_script_url_carries_the_version(
+    hass: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sidebar panel is admin only and its script URL carries the version.
+
+    The script is served with cache headers, so the version in its URL is what
+    makes browsers load the new script after an update.
+    """
+    from homeassistant.components.frontend import DATA_PANELS
+    from homeassistant.loader import async_get_integration
+
+    _patch(monkeypatch, probe_ok(password_required=False))
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "host": "192.0.2.20",
+            "port": 80,
+            "scheme": "http",
+            "verify_ssl": False,
+            "password": "",
+        },
+    )
+    assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
+
+    panel = hass.data[DATA_PANELS]["ratgdo-mgmt"]
+    assert panel.require_admin is True
+    version = (await async_get_integration(hass, DOMAIN)).version
+    assert (
+        panel.config["_panel_custom"]["js_url"]
+        == f"/{DOMAIN}/ratgdo-mgmt-panel.js?v={version}"
+    )

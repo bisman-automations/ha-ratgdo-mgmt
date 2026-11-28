@@ -15,6 +15,7 @@ from homeassistant.components.frontend import (
 )
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 
 from .const import (
     DOMAIN,
@@ -42,12 +43,15 @@ async def async_register_panel(
                 StaticPathConfig(
                     PANEL_JS_URL,
                     str(_JS),
-                    False,
+                    # Browsers may keep the script: its URL below carries the
+                    # version, so an update loads the new one.
+                    True,
                 )
             ]
         )
         hass.data[DOMAIN]["static"] = True
     if panel:
+        version = (await async_get_integration(hass, DOMAIN)).version
         async_register_built_in_panel(
             hass,
             "custom",
@@ -61,7 +65,7 @@ async def async_register_panel(
                     "name": PANEL_ELEMENT,
                     "embed_iframe": False,
                     "trust_external": False,
-                    "js_url": PANEL_JS_URL,
+                    "js_url": f"{PANEL_JS_URL}?v={version}",
                 }
             },
         )
